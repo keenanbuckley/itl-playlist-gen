@@ -12,7 +12,7 @@ scobility API's `spice_calc_time` and uses whichever scobility is newer (falling
 back to the one that's available if only one is). Force a specific source with
 `--mode snapshot` / `--mode api`.
 
-### `--mode snapshot` — local, nothing cached
+### `--mode snapshot`: local, nothing cached
 
 - **Spice + scores** come from a local scobility snapshot
   `scobility_itl2026_<date>.json` (newest in `$SCOBILITY_SCRATCH`, default
@@ -21,10 +21,10 @@ back to the one that's available if only one is). Force a specific source with
   [scobility pipeline](https://github.com/telperion/scobility/tree/api-breakout).
 - **Catalog** (song folders, point ceilings, ratings) comes from the scrape's
   local `charts.json` next to the snapshot; **unlock groups** are derived from
-  each chart's `unlockId` (`!= -1` ⇒ the `ITL Online 2026 Unlocks` group).
+  each chart's `unlockId` (`!= -1` means the `ITL Online 2026 Unlocks` group).
 - Nothing is written to `data/ITL2026`.
 
-### `--mode api` — everything from the APIs, cached under `data/ITL2026`
+### `--mode api`: everything from the APIs, cached under `data/ITL2026`
 
 - **Spice** from the [scobility](https://scobility.telp.gg/) API
   (`/catalog/{c}/chart/all`, served from `scobility.azurewebsites.net`), cached
@@ -33,7 +33,7 @@ back to the one that's available if only one is). Force a specific source with
   `data/ITL2026/charts.json`); **unlock groups** derived + cached as
   `unlock_folders.txt`.
 - **Scores** from a **live GrooveStats scrape** of the entrant's current top
-  scores — always up to date. The `username` is the **GrooveStats entrant name**
+  scores, always up to date. The `username` is the **GrooveStats entrant name**
   (which may differ from the in-game name, e.g. `Kiki` plays as `HFocus77`),
   resolved via the scobility API player list, cached to `entrant_index.json`.
 - `--refresh` re-fetches spice and the entrant index (both single calls). The
@@ -42,7 +42,7 @@ back to the one that's available if only one is). Force a specific source with
 
 In **either** mode, `--itl-json <file>` overrides the score source with a
 player's `ITL2026.json` export (per-chart `ex` / `clearType` / `date`); the
-username then defaults to the file name (`ITL2026 Kiki.json` → `Kiki`).
+username then defaults to the file name (`ITL2026 Kiki.json` -> `Kiki`).
 
 ### Refreshing the catalog (`fetch_catalog.py`)
 
@@ -56,7 +56,7 @@ python fetch_catalog.py --sleep 1.0   # gentler on the server
 
 It walks the per-chart endpoint to build the full catalog
 (`data/ITL2026/charts.json`), then derives `data/ITL2026/unlock_folders.txt` as
-every chart with `unlockId != -1` — which matches the actual Unlocks pack
+every chart with `unlockId != -1`, which matches the actual Unlocks pack
 exactly. `--mode api` does the same scrape automatically on a cache miss; run
 `fetch_catalog.py` to rebuild the catalog deliberately (the scrape hits a live
 third-party server one chart at a time, so it takes a few minutes).
@@ -90,7 +90,7 @@ Output defaults to `playlists/ITL - <username>.txt`. Copy it to
 
 ### Spice-ordered playlist (no player)
 
-`spice_playlist.py` writes every chart ordered by ascending spice — the true
+`spice_playlist.py` writes every chart ordered by ascending spice, the true
 difficulty order, which ignores block ratings. It takes the same `--mode`
 (auto/snapshot/api) as the main tool:
 
@@ -109,15 +109,15 @@ score, not a pass probability) is below the cutoff, so the list stays to charts
 you'd actually score well on:
 
 - `--min-ex auto` (the **default**) sets the cutoff to the **p10 of your own
-  passing scores** — the EX you usually at least reach when you pass. `auto:P`
+  passing scores**, the EX you usually at least reach when you pass. `auto:P`
   uses a different percentile (e.g. `auto:20` is stricter).
 - `--min-ex 70` sets an explicit cutoff; `--min-ex none` disables filtering.
 
-Predicted EX clusters fairly high, so the cutoff bites mostly in the 65–90 range.
-For one player: full catalog ≈ 970 playlist lines, `auto` (p10 ≈ 68%) ≈ 530,
-`auto:20` (≈ 70%) ≈ 290, explicit `75` ≈ 95.
+Predicted EX clusters fairly high, so the cutoff bites mostly in the 65-90 range.
+For one player: full catalog ~970 playlist lines, `auto` (p10 ~68%) ~530,
+`auto:20` (~70%) ~290, explicit `75` ~95.
 
-No third-party dependencies — standard-library Python 3 only (the API mode uses
+No third-party dependencies. Standard-library Python 3 only (the API mode uses
 `urllib`).
 
 ## How it works
