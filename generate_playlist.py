@@ -108,11 +108,18 @@ def build_playlist_lines(data, min_ex=None):
             passDate = f'Best score from {song.date[:7]}' if song.date else 'Never passed'
             targetsByDate.setdefault(passDate, []).append(song)
 
+    ex_note = '' if min_ex is None else f' (predicted EX >= {min_ex:.1f}%)'
     lines = []
 
-    lines.append("---All +RP")
+    lines.append(f"---All +RP{ex_note}")
     for target in sorted(allTargets, reverse=True, key=lambda x: x.potentialRP):
         lines.append(target.path)
+
+    passed = [s for s in allTargets if s.played]
+    if passed:
+        lines.append("---Passed +RP")
+        for target in sorted(passed, reverse=True, key=lambda x: x.potentialRP):
+            lines.append(target.path)
 
     for rating in sorted(targetsByRating.keys()):
         minRP = min(x.potentialRP for x in targetsByRating[rating])
@@ -124,8 +131,13 @@ def build_playlist_lines(data, min_ex=None):
         lines += [x.path for x in sorted(targetsByRating[rating], reverse=True, key=lambda x: x.potentialRP)]
 
     for passDate in sorted(targetsByDate.keys()):
-        lines.append(f'---{passDate}')
-        for target in sorted(targetsByDate[passDate], key=lambda x: x.maxPoints):
+        if passDate == 'Never passed':
+            lines.append(f'---{passDate}{ex_note}')
+            section = sorted(targetsByDate[passDate], key=lambda x: (x.spice is None, x.spice))
+        else:
+            lines.append(f'---{passDate}')
+            section = sorted(targetsByDate[passDate], key=lambda x: x.maxPoints)
+        for target in section:
             lines.append(target.path)
 
     return lines
