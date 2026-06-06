@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Generate a playlist of every ITL chart ordered by ascending spice.
+"""Generate a spice-ordered playlist of every ITL chart.
+
+Writes one file with a full spice-ordered section followed by bins of 10 charts,
+each bin labeled with its min/max spice (charts appear in both).
 
 Player-independent. Spice and catalog come from whichever mode you pick (see
 sources.py): auto (default; newer of snapshot/API), snapshot (local), or api
@@ -12,7 +15,6 @@ reported).
 """
 
 import argparse
-import math
 import os
 import sys
 
@@ -32,7 +34,7 @@ def main(argv=None):
     parser.add_argument('--catalog', default='itl2026', help='catalog prefix (default: itl2026)')
     parser.add_argument('--api-base', default=DEFAULT_API_BASE, help=f'scobility API base URL (default: {DEFAULT_API_BASE})')
     parser.add_argument('--itl-base', default=DEFAULT_ITL_BASE, help=f'ITL GrooveStats API base URL (default: {DEFAULT_ITL_BASE})')
-    parser.add_argument('--no-headers', action='store_true', help='omit the per-spice-band divider lines')
+    parser.add_argument('--bin-size', type=int, default=10, help='charts per bin in the binned sections (default: 10)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - spice order.txt)')
     args = parser.parse_args(argv)
 
@@ -54,23 +56,27 @@ def main(argv=None):
     spiced.sort(key=lambda x: x[0])
     skipped = len(data.hashes) - len(spiced)
 
-    lines = []
-    band = None
-    for spice, song in spiced:
-        if not args.no_headers and math.floor(spice) != band:
-            band = math.floor(spice)
-            lines.append(f'---{band:.0f} spice')
-        lines.append(song.path)
+    bin_size = max(1, args.bin_size)
+
+    # One file: a full spice-ordered section, then bins of bin_size charts each
+    # labeled with that bin's min/max spice.
+    lines = ['---All (spice order)']
+    lines += [song.path for _, song in spiced]
+    for i in range(0, len(spiced), bin_size):
+        chunk = spiced[i:i + bin_size]
+        lines.append(f'---{chunk[0][0]:.2f} - {chunk[-1][0]:.2f} spice')
+        lines += [song.path for _, song in chunk]
 
     output = args.output or os.path.join(os.path.dirname(__file__), 'playlists', 'ITL - spice order.txt')
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     with open(output, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
 
+    n_bins = (len(spiced) + bin_size - 1) // bin_size
     print(f'\n{len(spiced)} charts ordered by spice ({skipped} unspiced skipped)')
     if spiced:
         print(f'spice range: {spiced[0][0]:.3f} -> {spiced[-1][0]:.3f}')
-    print(f'Wrote {len(lines)} lines to {output}')
+    print(f'Wrote {len(lines)} lines to {output} (all songs + {n_bins} bins of {bin_size})')
     return 0
 
 

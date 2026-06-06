@@ -100,9 +100,10 @@ python spice_playlist.py --mode snapshot
 python spice_playlist.py --mode api
 ```
 
-Output defaults to `playlists/ITL - spice order.txt`, with `---N spice` band
-dividers (use `--no-headers` for a flat list). Unspiced charts are skipped and
-counted.
+Output defaults to `playlists/ITL - spice order.txt`: a full `---All (spice
+order)` section, then bins of 10 charts (`--bin-size` to change) each labeled
+with that bin's min/max spice. Every chart appears in both. Unspiced charts are
+skipped and counted.
 
 `--min-ex` drops any chart whose *predicted* EX (what the fit thinks you'd
 score, not a pass probability) is below the cutoff, so the list stays to charts
