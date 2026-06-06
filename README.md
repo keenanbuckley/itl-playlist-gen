@@ -1,96 +1,84 @@
 # itl-playlist-gen
 
 Generates an ITGmania playlist of the ITL charts that would gain a player the
-most ranking points, from local [scobility](../scobility) output. It's a
-descendant of the original `itl2026` playlist toolkit, with two changes:
+most ranking points, derived from [scobility](../scobility) spice. One player at
+a time, written as a standalone `.txt` you copy to the game machine.
 
-- **Spice and player scores come from a local scobility snapshot**, not the live
-  API. Refreshing the playlist for a new snapshot needs no new game export.
-- **One player at a time, by username**, writing a standalone `.txt` you copy to
-  the game machine instead of writing into local profiles.
+## Modes
 
-## Inputs
+Everything is sourced one of two ways, picked with `--mode` (see `sources.py`).
+The default is **`--mode auto`**: it compares the local snapshot's date with the
+scobility API's `spice_calc_time` and uses whichever scobility is newer (falling
+back to the one that's available if only one is). Force a specific source with
+`--mode snapshot` / `--mode api`.
 
-1. **Spice** — from one of two sources:
-   - a **scobility snapshot** `scobility_itl2026_<date>.json` from the offline
-     pipeline (`scratch/scobility.py`), auto-picked as the newest in
-     `$SCOBILITY_SCRATCH` (default `~/scobility/scratch`); or
-   - the **live scobility API** (`--spice api`), which serves spice but not
-     scores — so it must be paired with a non-snapshot score source.
-2. **Scores** — from one of three sources:
-   - the **snapshot**, selected by **username** (default); or
-   - a player's **`ITL2026.json` game export** (`--itl-json <file>`), read for
-     its per-chart `ex` / `clearType` / `date`. With an export, the username is
-     optional and defaults to the file name (`ITL2026 Kiki.json` -> `Kiki`); or
-   - a **live GrooveStats scrape** (`--scrape`) of the entrant's *current* top
-     scores — one API request, always up to date. The `username` here is the
-     **GrooveStats entrant name** (which may differ from the in-game profile
-     name, e.g. `Kiki` plays as `HFocus77`), resolved to an entrant id via an
-     index built from the scraped `entrant_info` dir and cached in
-     `entrant_index.json`. A wrong name prints close matches; `--rebuild-index`
-     forces a refresh.
-3. **The scrape `charts.json`** — the complete chart catalog, auto-discovered at
-   `<scratch>/itl2026_data/<newest date>/charts.json`. Supplies every chart's
-   song folder, block rating (`meter`), and `points` / `pointsScoring` /
-   `pointsPassing` ceilings. Being the full catalog, it covers all charts (so the
-   playlist can recommend charts the player hasn't even revealed yet), not just
-   one player's unlocked set.
-4. **`unlock_folders.txt`** — the bundled, authoritative list of song folders in
-   the `ITL Online 2026 Unlocks` pack. charts.json has the song folder but not
-   the on-disk group, so this decides it: a chart lives in
-   `ITL Online 2026 Unlocks` iff its folder is listed here, otherwise
-   `ITL Online 2026`. It was extracted from the actual Unlocks pack (190 song
-   folders, 150 SP / 40 DP). A player's `ITL2026.json` export is **not** a
-   reliable source for this — its `unlockFolders` only lists the unlocks that
-   player has revealed, not the full pack.
+### `--mode snapshot` — local, nothing cached
 
-charts.json (folders/points) and unlock_folders.txt (groups) are always
-required; spice and scores each come from one of the two sources above. The tool
-warns if any `unlock_folders.txt` entry is missing from charts.json (a sign the
-list is stale relative to the scrape).
+- **Spice + scores** come from a local scobility snapshot
+  `scobility_itl2026_<date>.json` (newest in `$SCOBILITY_SCRATCH`, default
+  `~/scobility/scratch`). The player is selected by **snapshot player name**.
+- **Catalog** (song folders, point ceilings, ratings) comes from the scrape's
+  local `charts.json` next to the snapshot; **unlock groups** are derived from
+  each chart's `unlockId` (`!= -1` ⇒ the `ITL Online 2026 Unlocks` group).
+- Nothing is written to `data/ITL2026`.
 
-### Refreshing `unlock_folders.txt`
+### `--mode api` — everything from the APIs, cached under `data/ITL2026`
 
-It only changes if ITL re-releases the Unlocks pack. To regenerate from a pack
-zip:
+- **Spice** from the scobility API (`/catalog/{c}/chart/all`), cached to
+  `data/ITL2026/spice.json`.
+- **Catalog** scraped from the ITL API on first run (then cached as
+  `data/ITL2026/charts.json`); **unlock groups** derived + cached as
+  `unlock_folders.txt`.
+- **Scores** from a **live GrooveStats scrape** of the entrant's current top
+  scores — always up to date. The `username` is the **GrooveStats entrant name**
+  (which may differ from the in-game name, e.g. `Kiki` plays as `HFocus77`),
+  resolved via the scobility API player list, cached to `entrant_index.json`.
+- `--refresh` re-fetches spice and the entrant index (both single calls). The
+  chart catalog is static for the event, so `--refresh` does **not** re-scrape
+  it; run `fetch_catalog.py` (or delete `data/ITL2026/charts.json`) for that.
+
+In **either** mode, `--itl-json <file>` overrides the score source with a
+player's `ITL2026.json` export (per-chart `ex` / `clearType` / `date`); the
+username then defaults to the file name (`ITL2026 Kiki.json` → `Kiki`).
+
+### Refreshing the catalog (`fetch_catalog.py`)
+
+Both files can be regenerated straight from the ITL API without the full
+scobility pipeline:
 
 ```bash
-python3 - <<'PY'
-import zipfile
-z = zipfile.ZipFile('ITL Online 2026 Unlocks.zip')
-folders = sorted({
-    p.split('/')[1]
-    for n in z.namelist()
-    for p in [n]
-    if len(p.split('/')) >= 3 and p.split('/')[2].lower().endswith(('.ssc', '.sm'))
-})
-open('unlock_folders.txt', 'w').write('\n'.join(folders) + '\n')
-PY
+python fetch_catalog.py          # -> data/ITL2026/{charts.json, unlock_folders.txt}
+python fetch_catalog.py --sleep 1.0   # gentler on the server
 ```
+
+It walks the per-chart endpoint to build the full catalog
+(`data/ITL2026/charts.json`), then derives `data/ITL2026/unlock_folders.txt` as
+every chart with `unlockId != -1` — which matches the actual Unlocks pack
+exactly. `--mode api` does the same scrape automatically on a cache miss; run
+`fetch_catalog.py` to rebuild the catalog deliberately (the scrape hits a live
+third-party server one chart at a time, so it takes a few minutes).
 
 ## Usage
 
 ```bash
-# snapshot spice + snapshot scores (newest snapshot + charts.json in $SCOBILITY_SCRATCH)
-python generate_playlist.py "PlayerName"
+# auto (default): newer of snapshot / API; snapshot scores by player name,
+# api scores by live GrooveStats scrape
+python generate_playlist.py "HFocus77"
 
-# live API spice + a player's export -- no snapshot needed
-python generate_playlist.py --spice api --itl-json "ITL2026 Kiki.json"
+# force a specific source
+python generate_playlist.py "HFocus77" --mode snapshot
+python generate_playlist.py "HFocus77" --mode api
 
-# live API spice + live current GrooveStats scores (by entrant name)
-python generate_playlist.py "HFocus77" --scrape --spice api
-
-# snapshot spice + a player's export (e.g. someone not yet in the snapshot)
-python generate_playlist.py "Kiki" --itl-json "ITL2026 Kiki.json"
+# either mode, scores from an ITL2026.json export instead
+python generate_playlist.py --mode api --itl-json "ITL2026 Kiki.json"
 
 # only charts the fit predicts you'd score at least 70% EX on
-python generate_playlist.py --spice api --itl-json "ITL2026 Kiki.json" --min-ex 70
+python generate_playlist.py "HFocus77" --mode api --min-ex 70
 
-# explicit snapshot
-python generate_playlist.py "PlayerName" \
-    --snapshot ~/scobility/scratch/scobility_itl2026_20260605.json
+# api mode, refresh cached spice + entrant index
+python generate_playlist.py "HFocus77" --mode api --refresh
 
-# unknown name -> prints the list of available players
+# unknown name -> prints close matches / the available players
 python generate_playlist.py "whoami"
 ```
 
@@ -103,8 +91,8 @@ Output defaults to `playlists/ITL - <username>.txt`. Copy it to
 difficulty order, which ignores block ratings:
 
 ```bash
-python spice_playlist.py            # snapshot spice
-python spice_playlist.py --spice api
+python spice_playlist.py            # snapshot mode
+python spice_playlist.py --mode api
 ```
 
 Output defaults to `playlists/ITL - spice order.txt`, with `---N spice` band
@@ -142,9 +130,11 @@ each chart's on-disk group from `unlock_folders.txt`.
 
 | File | Role |
 |---|---|
-| `generate_playlist.py` | CLI entrypoint; target grouping + playlist writing |
-| `scobility.py` | spice loader (snapshot/API), player lookup, horizon fit, RP targets |
+| `generate_playlist.py` | CLI entrypoint; score resolution, target grouping, playlist writing |
+| `sources.py` | the two modes: resolves spice/catalog/unlock (and api-mode caching) |
+| `scobility.py` | spice loader (snapshot/API/raw), player lookup, horizon fit, RP targets |
 | `spice_playlist.py` | player-independent playlist of every chart ordered by spice |
-| `groovestats.py` | entrant name->id index + live score scrape |
+| `groovestats.py` | live GrooveStats score scrape + name suggestions |
+| `fetch_catalog.py` | scrape charts.json + derive unlock_folders.txt from the ITL API |
 | `itldata.py` | ITL scoring math; per-player chart model |
-| `unlock_folders.txt` | authoritative `ITL Online 2026 Unlocks` song folders (group discriminator) |
+| `data/ITL2026/` | api-mode cache: `spice.json`, `charts.json`, `unlock_folders.txt`, `entrant_index.json` |

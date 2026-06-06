@@ -1,13 +1,11 @@
-"""Resolve a GrooveStats/ITL entrant by name and scrape their current scores.
+"""Live GrooveStats/ITL entrant scraping and the name->id index cache.
 
-The ITL2026.json export carries no identifier, so a profile is named by its
-GrooveStats entrant name (which may differ from the in-game profile name). Names
-resolve to ITL entrant ids via a local index built from the scraped entrant_info
-directory; the index is cached so the ~2000 files are only read once. The
-entrant's *current* scores then come from one live API request.
+A profile is named by its GrooveStats entrant name (which may differ from the
+in-game profile name). Names resolve to ITL entrant ids elsewhere (the scobility
+API player list, in sources.py); this module fetches an entrant's current scores
+in one API request and persists the resolved index.
 """
 
-import glob
 import json
 import os
 import urllib.request
@@ -16,43 +14,10 @@ import urllib.request
 DEFAULT_ITL_BASE = 'https://itl2026.groovestats.com'
 
 
-def find_latest_entrant_info(scratch_dir, catalog='itl2026'):
-    pattern = os.path.join(scratch_dir, f'{catalog}_data', '*', 'entrant_info')
-    candidates = sorted(d for d in glob.glob(pattern) if os.path.isdir(d))
-    if not candidates:
-        raise FileNotFoundError(
-            f'no {catalog}_data/*/entrant_info found under {scratch_dir} (set --entrant-info)'
-        )
-    return candidates[-1]
-
-
-def _entrant_of(file_data):
-    return file_data.get('entrant') or file_data.get('data', {}).get('entrant')
-
-
-def build_entrant_index(entrant_info_dir, cache_path=None, rebuild=False):
-    """Return {lowercased name: [entrant_id, canonical name]} for a scrape dir.
-
-    Cached to cache_path; rebuilt when missing, stale, or rebuild=True.
-    """
-    if cache_path and not rebuild and os.path.isfile(cache_path):
-        if os.path.getmtime(cache_path) >= os.path.getmtime(entrant_info_dir):
-            with open(cache_path, encoding='utf-8') as f:
-                cached = json.load(f)
-            if cached.get('source') == os.path.abspath(entrant_info_dir):
-                return cached['names']
-
-    index = {}
-    for f in glob.glob(os.path.join(entrant_info_dir, '*.json')):
-        with open(f, encoding='utf-8') as fp:
-            ent = _entrant_of(json.load(fp))
-        if ent and ent.get('name') is not None:
-            index[ent['name'].lower()] = [ent['id'], ent['name']]
-
-    if cache_path:
-        with open(cache_path, 'w', encoding='utf-8') as fp:
-            json.dump({'source': os.path.abspath(entrant_info_dir), 'names': index}, fp)
-    return index
+def write_index_cache(cache_path, source, index):
+    os.makedirs(os.path.dirname(os.path.abspath(cache_path)), exist_ok=True)
+    with open(cache_path, 'w', encoding='utf-8') as f:
+        json.dump({'source': source, 'names': index}, f)
 
 
 def suggest_names(query, index, limit=10):

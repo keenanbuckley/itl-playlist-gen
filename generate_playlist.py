@@ -1,68 +1,36 @@
 #!/usr/bin/env python3
 """Generate an ITGmania playlist of RP-gaining ITL charts for one player.
 
-Chart spice comes from either a local scobility snapshot or the live scobility
-API. The player's scores come from one of: that snapshot (by username), a
-player's ITL2026.json game export, or a live scrape of their current GrooveStats
-scores (by entrant name). The complete chart catalog (folders, point ceilings,
-ratings) comes from the scrape's charts.json, and the authoritative unlock-folder
-list from unlock_folders.txt (extracted from the "ITL Online 2026 Unlocks" pack).
-Writes a StepMania playlist .txt for the game machine.
+Two modes (see sources.py):
+  snapshot  spice + scores from a local scobility snapshot; catalog from the
+            scrape's local charts.json. Nothing is cached.
+  api       spice / catalog / unlock list / entrant index from the APIs, cached
+            under data/ITL2026 (--refresh re-fetches); scores from a live
+            GrooveStats scrape by entrant name.
 
-    # snapshot spice + snapshot scores (by username)
+    # snapshot mode (default): scores from the snapshot by player name
     python generate_playlist.py "PlayerName"
 
-    # live API spice + a player's export (no snapshot needed)
-    python generate_playlist.py --spice api --itl-json "ITL2026 Kiki.json"
+    # api mode: live spice + live GrooveStats scores by entrant name
+    python generate_playlist.py "HFocus77" --mode api
 
-    # live API spice + live current GrooveStats scores (by entrant name)
-    python generate_playlist.py "HFocus77" --scrape --spice api
+    # either mode, scores from an ITL2026.json export instead
+    python generate_playlist.py --mode api --itl-json "ITL2026 Kiki.json"
 """
 
 import argparse
-import glob
-import json
+import math
 import os
 import sys
 
+import sources
 from itldata import ITLData
-from scobility import Scobility, DEFAULT_API_BASE
-from groovestats import (
-    DEFAULT_ITL_BASE,
-    find_latest_entrant_info,
-    build_entrant_index,
-    suggest_names,
-    scrape_entrant_scores,
-)
-
-DEFAULT_INDEX_CACHE = os.path.join(os.path.dirname(__file__), 'entrant_index.json')
-
-
-def scores_from_export(export_path):
-    """Build hash -> {value, clear, last_played} from an ITL2026.json export."""
-    with open(export_path, encoding='utf-8') as f:
-        export = json.load(f)
-    scores = {}
-    for hsh, entry in export['hashMap'].items():
-        if entry.get('clearType', 0) > 0:
-            scores[hsh] = {
-                'value': 1.0 - entry['ex'] / 10000.0,    # ex is EX% x100; value is diff-from-perfect
-                'clear': entry['clearType'],
-                'last_played': entry.get('date'),
-            }
-    return scores
-
-
-def name_from_export(export_path):
-    stem = os.path.splitext(os.path.basename(export_path))[0]
-    for prefix in ('ITL2026 ', 'ITL2026_', 'ITL2026'):
-        if stem.startswith(prefix):
-            return stem[len(prefix):].strip() or stem
-    return stem
+from scobility import DEFAULT_API_BASE
+from groovestats import DEFAULT_ITL_BASE, suggest_names, scrape_entrant_scores
+from sources import scores_from_export, name_from_export
 
 
 def _percentile(sorted_vals, p):
-    import math
     if not sorted_vals:
         return None
     k = (len(sorted_vals) - 1) * p / 100.0
@@ -92,35 +60,6 @@ def resolve_min_ex(spec, scores):
             return None, 'min-EX:       auto skipped (no scores)'
         return val, f'min-EX:       {val:.1f}% (auto: p{pctile:g} of {len(ex_vals)} passing scores)'
     return float(s), f'min-EX:       {float(s):.1f}%'
-
-
-DEFAULT_SNAPSHOT_DIR = os.environ.get(
-    'SCOBILITY_SCRATCH', os.path.expanduser('~/scobility/scratch')
-)
-DEFAULT_UNLOCK_FOLDERS = os.path.join(os.path.dirname(__file__), 'unlock_folders.txt')
-
-
-def find_latest_snapshot(directory, catalog='itl2026'):
-    pattern = os.path.join(directory, f'scobility_{catalog}*.json')
-    candidates = sorted(glob.glob(pattern))
-    if not candidates:
-        raise FileNotFoundError(
-            f'no scobility_{catalog}*.json found in {directory} '
-            f'(set --snapshot or $SCOBILITY_SCRATCH)'
-        )
-    # Filenames embed the scrape date, so lexical sort puts the newest last.
-    return candidates[-1]
-
-
-def find_latest_charts(scratch_dir, catalog='itl2026'):
-    pattern = os.path.join(scratch_dir, f'{catalog}_data', '*', 'charts.json')
-    candidates = sorted(glob.glob(pattern))
-    if not candidates:
-        raise FileNotFoundError(
-            f'no {catalog}_data/*/charts.json found under {scratch_dir} (set --charts)'
-        )
-    # Parent dirs are dated (YYYYMMDD), so lexical sort puts the newest last.
-    return candidates[-1]
 
 
 def build_playlist_lines(data, min_ex=None):
@@ -189,21 +128,49 @@ def build_playlist_lines(data, min_ex=None):
     return lines
 
 
+def resolve_scores(args, mode, scooby):
+    """Return (scores, player_name) or (None, None) on a handled lookup failure."""
+    if args.itl_json:
+        print(f'Scores:       export ({args.itl_json})')
+        return scores_from_export(args.itl_json), (args.username or name_from_export(args.itl_json))
+
+    if mode == 'api':
+        index = sources.entrant_index_api(args.catalog, args.api_base, refresh=args.refresh)
+        entry = index.get(args.username.lower())
+        if entry is None:
+            print(f'\nNo GrooveStats entrant named {args.username!r}.', file=sys.stderr)
+            near = suggest_names(args.username, index)
+            if near:
+                print('Did you mean: ' + ', '.join(near), file=sys.stderr)
+            return None, None
+        entrant_id, player_name = entry
+        print(f'Scores:       live scrape of {player_name} (ITL entrant #{entrant_id})')
+        return scrape_entrant_scores(entrant_id, args.itl_base), player_name
+
+    # snapshot mode
+    try:
+        player, scores = scooby.find_player(args.username)
+    except KeyError:
+        print(f'\nNo player named {args.username!r} in the snapshot. Available names:', file=sys.stderr)
+        for name in scooby.player_names():
+            print(f'  {name}', file=sys.stderr)
+        return None, None
+    print(f'Scores:       snapshot player #{player["e_id"]}')
+    return scores, player['name']
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('username', nargs='?', help='player name (snapshot/scrape lookup; defaults to the export filename with --itl-json)')
-    parser.add_argument('--spice', choices=['snapshot', 'api'], default='snapshot', help='spice source (default: snapshot)')
-    parser.add_argument('--itl-json', help="a player's ITL2026.json export to read scores from (instead of the snapshot)")
-    parser.add_argument('--scrape', action='store_true', help="scrape the username's current GrooveStats scores live (resolved via the entrant_info index)")
-    parser.add_argument('--entrant-info', help='entrant_info dir for the name->id index (default: newest <catalog>_data/*/entrant_info)')
-    parser.add_argument('--itl-base', default=DEFAULT_ITL_BASE, help=f'ITL GrooveStats API base URL (default: {DEFAULT_ITL_BASE})')
-    parser.add_argument('--rebuild-index', action='store_true', help='force a rebuild of the cached entrant name->id index')
-    parser.add_argument('--snapshot', help='path to a scobility snapshot JSON (default: newest in $SCOBILITY_SCRATCH)')
-    parser.add_argument('--snapshot-dir', default=DEFAULT_SNAPSHOT_DIR, help='where to look for the newest snapshot and charts.json')
-    parser.add_argument('--catalog', default='itl2026', help='snapshot/charts catalog prefix (default: itl2026)')
+    parser.add_argument('username', nargs='?', help='player name (snapshot player / GrooveStats entrant; defaults to the export filename with --itl-json)')
+    parser.add_argument('--mode', choices=['auto', 'snapshot', 'api'], default='auto', help='source: snapshot, api, or auto = whichever has newer scobility (default: auto)')
+    parser.add_argument('--itl-json', help="read scores from an ITL2026.json export instead of the mode's score source")
+    parser.add_argument('--refresh', action='store_true', help='api mode: re-fetch the cached spice/catalog/index')
+    parser.add_argument('--snapshot', help='snapshot mode: path to a snapshot JSON (default: newest in $SCOBILITY_SCRATCH)')
+    parser.add_argument('--snapshot-dir', default=sources.DEFAULT_SNAPSHOT_DIR, help='snapshot mode: where to look for the snapshot and charts.json')
+    parser.add_argument('--charts', help='snapshot mode: explicit charts.json path')
+    parser.add_argument('--catalog', default='itl2026', help='catalog prefix (default: itl2026)')
     parser.add_argument('--api-base', default=DEFAULT_API_BASE, help=f'scobility API base URL (default: {DEFAULT_API_BASE})')
-    parser.add_argument('--charts', help='path to the scrape charts.json (default: newest <catalog>_data/*/charts.json)')
-    parser.add_argument('--unlock-folders', default=DEFAULT_UNLOCK_FOLDERS, help='newline-separated unlock song folders (default: bundled unlock_folders.txt)')
+    parser.add_argument('--itl-base', default=DEFAULT_ITL_BASE, help=f'ITL GrooveStats API base URL (default: {DEFAULT_ITL_BASE})')
     parser.add_argument('--min-ex', default='auto', metavar='EX|auto[:P]',
                         help="only keep charts whose predicted EX is at least this: a number (e.g. 70), "
                              "'auto' for the p10 of your passing scores, 'auto:P' for the Pth percentile, "
@@ -211,74 +178,28 @@ def main(argv=None):
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - <username>.txt)')
     args = parser.parse_args(argv)
 
-    if args.itl_json and args.scrape:
-        parser.error('--itl-json and --scrape are mutually exclusive score sources')
-    if args.spice == 'api' and not (args.itl_json or args.scrape):
-        parser.error('--spice api has no score source; add --itl-json or --scrape (the API serves spice, not scores)')
     if not args.itl_json and not args.username:
-        parser.error('a username is required for snapshot/scrape scores (or pass --itl-json)')
+        parser.error('a username is required (or pass --itl-json)')
 
-    charts_path = args.charts or find_latest_charts(args.snapshot_dir, args.catalog)
-    if not os.path.isfile(args.unlock_folders):
-        parser.error(f'unlock folder list not found at {args.unlock_folders} (use --unlock-folders)')
+    try:
+        scooby, charts, unlock_folders, _snapshot, mode, src_lines = sources.resolve_catalog(
+            args.mode, snapshot_dir=args.snapshot_dir, catalog=args.catalog,
+            api_base=args.api_base, itl_base=args.itl_base,
+            snapshot_path=args.snapshot, charts_path=args.charts, refresh=args.refresh,
+        )
+    except FileNotFoundError as e:
+        parser.error(str(e))
+    for line in src_lines:
+        print(line)
 
-    print(f'Charts:       {charts_path}')
-    print(f'Unlocks:      {args.unlock_folders}')
-
-    with open(charts_path, encoding='utf-8') as f:
-        charts = json.load(f)
-    with open(args.unlock_folders, encoding='utf-8') as f:
-        unlock_folders = {line.strip() for line in f if line.strip()}
-
-    # Every unlock folder should resolve to a real chart. Entries missing from
-    # charts.json mean the list and the scrape disagree, so flag it loudly.
     catalog_folders = {c['chartSongDir'] for c in charts.values()}
-    sp_folders = {c['chartSongDir'] for c in charts.values() if c.get('playstyle') == 1}
-    orphan_unlocks = unlock_folders - catalog_folders
-    print(f'Unlock folders: {len(unlock_folders)} '
-          f'({len(unlock_folders & sp_folders)} SP charts in catalog)')
-    if orphan_unlocks:
-        print(f'WARNING: {len(orphan_unlocks)} unlock folders not in charts.json '
-              f'(list may be stale vs the scrape): {sorted(orphan_unlocks)[:5]}', file=sys.stderr)
+    orphan = unlock_folders - catalog_folders
+    if orphan:
+        print(f'WARNING: {len(orphan)} unlock folders not in charts.json: {sorted(orphan)[:5]}', file=sys.stderr)
 
-    # Spice source.
-    if args.spice == 'api':
-        url = f'{args.api_base}/catalog/{args.catalog.upper()}/chart/all'
-        print(f'Spice:        live API ({url})')
-        scooby = Scobility.from_api(args.catalog.upper(), args.api_base)
-    else:
-        snapshot = args.snapshot or find_latest_snapshot(args.snapshot_dir, args.catalog)
-        print(f'Spice:        snapshot ({snapshot})')
-        scooby = Scobility.from_snapshot(snapshot)
-
-    # Score source.
-    if args.scrape:
-        info_dir = args.entrant_info or find_latest_entrant_info(args.snapshot_dir, args.catalog)
-        index = build_entrant_index(info_dir, cache_path=DEFAULT_INDEX_CACHE, rebuild=args.rebuild_index)
-        entry = index.get(args.username.lower())
-        if entry is None:
-            print(f'\nNo GrooveStats entrant named {args.username!r} in {info_dir}.', file=sys.stderr)
-            near = suggest_names(args.username, index)
-            if near:
-                print('Did you mean: ' + ', '.join(near), file=sys.stderr)
-            return 1
-        entrant_id, player_name = entry
-        print(f'Scores:       live scrape of {player_name} (ITL entrant #{entrant_id})')
-        scores = scrape_entrant_scores(entrant_id, args.itl_base)
-    elif args.itl_json:
-        scores = scores_from_export(args.itl_json)
-        player_name = args.username or name_from_export(args.itl_json)
-        print(f'Scores:       export ({args.itl_json})')
-    else:
-        try:
-            player, scores = scooby.find_player(args.username)
-        except KeyError:
-            print(f'\nNo player named {args.username!r} in the snapshot. Available names:', file=sys.stderr)
-            for name in scooby.player_names():
-                print(f'  {name}', file=sys.stderr)
-            return 1
-        player_name = player['name']
-        print(f'Scores:       snapshot player #{player["e_id"]}')
+    scores, player_name = resolve_scores(args, mode, scooby)
+    if scores is None:
+        return 1
 
     print(f'Player:       {player_name} - {len(scores)} scored charts')
 

@@ -1,60 +1,49 @@
 #!/usr/bin/env python3
 """Generate a playlist of every ITL chart ordered by ascending spice.
 
-Player-independent: spice comes from a scobility snapshot or the live API, song
-folders/groups from charts.json + unlock_folders.txt. Charts without a spice
-rating are skipped (and reported).
+Player-independent. Spice and catalog come from whichever mode you pick (see
+sources.py): snapshot (local) or api (cached under data/ITL2026). Charts without
+a spice rating are skipped (and reported).
 
-    python spice_playlist.py
-    python spice_playlist.py --spice api
+    python spice_playlist.py            # snapshot mode
+    python spice_playlist.py --mode api
 """
 
 import argparse
-import json
 import math
 import os
 import sys
 
+import sources
 from itldata import ITLData
-from scobility import Scobility, DEFAULT_API_BASE
-from generate_playlist import (
-    DEFAULT_SNAPSHOT_DIR,
-    DEFAULT_UNLOCK_FOLDERS,
-    find_latest_snapshot,
-    find_latest_charts,
-)
+from scobility import DEFAULT_API_BASE
+from groovestats import DEFAULT_ITL_BASE
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--spice', choices=['snapshot', 'api'], default='snapshot', help='spice source (default: snapshot)')
-    parser.add_argument('--snapshot', help='path to a scobility snapshot JSON (default: newest in $SCOBILITY_SCRATCH)')
-    parser.add_argument('--snapshot-dir', default=DEFAULT_SNAPSHOT_DIR, help='where to look for the newest snapshot and charts.json')
-    parser.add_argument('--catalog', default='itl2026', help='snapshot/charts catalog prefix (default: itl2026)')
+    parser.add_argument('--mode', choices=['auto', 'snapshot', 'api'], default='auto', help='source: snapshot, api, or auto = whichever has newer scobility (default: auto)')
+    parser.add_argument('--refresh', action='store_true', help='api mode: re-fetch the cached spice/catalog')
+    parser.add_argument('--snapshot', help='snapshot mode: path to a snapshot JSON (default: newest in $SCOBILITY_SCRATCH)')
+    parser.add_argument('--snapshot-dir', default=sources.DEFAULT_SNAPSHOT_DIR, help='snapshot mode: where to look for the snapshot and charts.json')
+    parser.add_argument('--charts', help='snapshot mode: explicit charts.json path')
+    parser.add_argument('--catalog', default='itl2026', help='catalog prefix (default: itl2026)')
     parser.add_argument('--api-base', default=DEFAULT_API_BASE, help=f'scobility API base URL (default: {DEFAULT_API_BASE})')
-    parser.add_argument('--charts', help='path to the scrape charts.json (default: newest <catalog>_data/*/charts.json)')
-    parser.add_argument('--unlock-folders', default=DEFAULT_UNLOCK_FOLDERS, help='newline-separated unlock song folders (default: bundled unlock_folders.txt)')
+    parser.add_argument('--itl-base', default=DEFAULT_ITL_BASE, help=f'ITL GrooveStats API base URL (default: {DEFAULT_ITL_BASE})')
     parser.add_argument('--no-headers', action='store_true', help='omit the per-spice-band divider lines')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - spice order.txt)')
     args = parser.parse_args(argv)
 
-    charts_path = args.charts or find_latest_charts(args.snapshot_dir, args.catalog)
-    if not os.path.isfile(args.unlock_folders):
-        parser.error(f'unlock folder list not found at {args.unlock_folders} (use --unlock-folders)')
-
-    if args.spice == 'api':
-        print(f'Spice:        live API ({args.api_base}/catalog/{args.catalog.upper()}/chart/all)')
-        scooby = Scobility.from_api(args.catalog.upper(), args.api_base)
-    else:
-        snapshot = args.snapshot or find_latest_snapshot(args.snapshot_dir, args.catalog)
-        print(f'Spice:        snapshot ({snapshot})')
-        scooby = Scobility.from_snapshot(snapshot)
-
-    print(f'Charts:       {charts_path}')
-    with open(charts_path, encoding='utf-8') as f:
-        charts = json.load(f)
-    with open(args.unlock_folders, encoding='utf-8') as f:
-        unlock_folders = {line.strip() for line in f if line.strip()}
+    try:
+        scooby, charts, unlock_folders, _snapshot, _mode, src_lines = sources.resolve_catalog(
+            args.mode, snapshot_dir=args.snapshot_dir, catalog=args.catalog,
+            api_base=args.api_base, itl_base=args.itl_base,
+            snapshot_path=args.snapshot, charts_path=args.charts, refresh=args.refresh,
+        )
+    except FileNotFoundError as e:
+        parser.error(str(e))
+    for line in src_lines:
+        print(line)
 
     data = ITLData(charts, unlock_folders, {})
 

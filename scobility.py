@@ -176,18 +176,22 @@ class Scobility:
         }
         return cls(spice, snapshot=snap)
 
-    @classmethod
-    def from_api(cls, catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=60):
+    @staticmethod
+    def fetch_api_spice_raw(catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=60):
+        """{hash: raw spice} from the scobility API (cacheable as-is)."""
         url = f'{base_url}/catalog/{catalog}/chart/all'
         with urllib.request.urlopen(url, timeout=timeout) as r:
-            payload = json.load(r)
-        data = payload.get('data', payload)
-        spice = {
-            hsh: math.log2(entry['spice'])
-            for hsh, entry in data.items()
-            if entry.get('spice') is not None
-        }
-        return cls(spice)
+            data = json.load(r).get('data', {})
+        return {h: e['spice'] for h, e in data.items() if e.get('spice') is not None}
+
+    @classmethod
+    def from_raw_spice(cls, raw):
+        """Build from a {hash: raw spice} dict (snapshot/API/cache agnostic)."""
+        return cls({h: math.log2(s) for h, s in raw.items() if s and s > 0})
+
+    @classmethod
+    def from_api(cls, catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=60):
+        return cls.from_raw_spice(cls.fetch_api_spice_raw(catalog, base_url, timeout))
 
     def player_names(self):
         return sorted(p['name'] for p in self.snapshot['players'])
@@ -284,3 +288,21 @@ class Scobility:
                 song.potentialEP = 0
 
             song.potentialRP = song.potentialSP + song.potentialEP
+
+
+def fetch_player_index(catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=30):
+    """Name -> [entrant_id, name] from the scobility API's player listing.
+
+    One request to /catalog/{c}/players -- a snapshot-free way to resolve a
+    GrooveStats entrant name to the id used for scraping.
+    """
+    url = f'{base_url}/catalog/{catalog}/players'
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        payload = json.load(r)
+    data = payload.get('data', payload)
+    index = {}
+    for entry in data.values():
+        name, eid = entry.get('name'), entry.get('entrant_id')
+        if name is not None and eid is not None:
+            index[name.lower()] = [eid, name]
+    return index
