@@ -88,10 +88,12 @@ Output defaults to `playlists/ITL - <username>.txt`. Copy it to
 ### Spice-ordered playlist (no player)
 
 `spice_playlist.py` writes every chart ordered by ascending spice — the true
-difficulty order, which ignores block ratings:
+difficulty order, which ignores block ratings. It takes the same `--mode`
+(auto/snapshot/api) as the main tool:
 
 ```bash
-python spice_playlist.py            # snapshot mode
+python spice_playlist.py            # auto: newer of snapshot / API (default)
+python spice_playlist.py --mode snapshot
 python spice_playlist.py --mode api
 ```
 

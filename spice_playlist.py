@@ -2,10 +2,12 @@
 """Generate a playlist of every ITL chart ordered by ascending spice.
 
 Player-independent. Spice and catalog come from whichever mode you pick (see
-sources.py): snapshot (local) or api (cached under data/ITL2026). Charts without
-a spice rating are skipped (and reported).
+sources.py): auto (default; newer of snapshot/API), snapshot (local), or api
+(cached under data/ITL2026). Charts without a spice rating are skipped (and
+reported).
 
-    python spice_playlist.py            # snapshot mode
+    python spice_playlist.py            # auto: newer of snapshot / API
+    python spice_playlist.py --mode snapshot
     python spice_playlist.py --mode api
 """
 
