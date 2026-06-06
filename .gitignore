@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+# Personal data drops and generated output.
+playlists/*.txt
+*.snapshot.json
+entrant_index.json
