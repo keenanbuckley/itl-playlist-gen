@@ -17,6 +17,8 @@ back to the one that's available if only one is). Force a specific source with
 - **Spice + scores** come from a local scobility snapshot
   `scobility_itl2026_<date>.json` (newest in `$SCOBILITY_SCRATCH`, default
   `~/scobility/scratch`). The player is selected by **snapshot player name**.
+  Snapshots are produced by the offline
+  [scobility pipeline](https://github.com/telperion/scobility/tree/api-breakout).
 - **Catalog** (song folders, point ceilings, ratings) comes from the scrape's
   local `charts.json` next to the snapshot; **unlock groups** are derived from
   each chart's `unlockId` (`!= -1` ⇒ the `ITL Online 2026 Unlocks` group).
@@ -24,8 +26,9 @@ back to the one that's available if only one is). Force a specific source with
 
 ### `--mode api` — everything from the APIs, cached under `data/ITL2026`
 
-- **Spice** from the scobility API (`/catalog/{c}/chart/all`), cached to
-  `data/ITL2026/spice.json`.
+- **Spice** from the [scobility](https://scobility.telp.gg/) API
+  (`/catalog/{c}/chart/all`, served from `scobility.azurewebsites.net`), cached
+  to `data/ITL2026/spice.json`.
 - **Catalog** scraped from the ITL API on first run (then cached as
   `data/ITL2026/charts.json`); **unlock groups** derived + cached as
   `unlock_folders.txt`.
