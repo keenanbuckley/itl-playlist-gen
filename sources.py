@@ -208,6 +208,15 @@ def _resolve_api(catalog, api_base, itl_base, refresh, sleep, prefetched_raw=Non
     return scooby, charts, unlock, None, 'api', lines
 
 
+def index_from_snapshot(snapshot):
+    """Name -> [entrant_id, name] from a snapshot's players (no network/cache)."""
+    return {
+        p['name'].lower(): [p['e_id'], p['name']]
+        for p in snapshot.get('players', [])
+        if p.get('name') is not None and p.get('e_id') is not None
+    }
+
+
 def entrant_index_api(catalog, api_base, refresh=False):
     """Name -> [id, name] from the scobility API players list, cached."""
     if os.path.isfile(INDEX_CACHE) and not refresh:

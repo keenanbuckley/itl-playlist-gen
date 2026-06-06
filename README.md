@@ -7,10 +7,16 @@ a time, written as a standalone `.txt` you copy to the game machine.
 ## Modes
 
 Everything is sourced one of two ways, picked with `--mode` (see `sources.py`).
-The default is **`--mode auto`**: it compares the local snapshot's date with the
-scobility API's `spice_calc_time` and uses whichever scobility is newer (falling
-back to the one that's available if only one is). Force a specific source with
-`--mode snapshot` / `--mode api`.
+The default is **`--mode auto`**, which chooses spice and scores independently:
+
+- **Spice** (and the catalog): compares the local snapshot's date with the
+  scobility API's `spice_calc_time` and uses whichever scobility is newer.
+- **Scores**: prefers the live GrooveStats scrape (always the newest), and falls
+  back to the snapshot if GrooveStats is unreachable.
+
+So auto can read spice from a newer local snapshot while still using your current
+live scores. Force a single coupled source with `--mode snapshot` (snapshot
+spice + snapshot scores) or `--mode api` (API spice + live scores).
 
 ### `--mode snapshot`: local, nothing cached
 

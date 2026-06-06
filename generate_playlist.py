@@ -25,7 +25,7 @@ import sys
 
 import sources
 from itldata import ITLData
-from scobility import DEFAULT_API_BASE
+from scobility import Scobility, DEFAULT_API_BASE
 from groovestats import DEFAULT_ITL_BASE, suggest_names, scrape_entrant_scores
 from sources import scores_from_export, name_from_export
 
@@ -159,35 +159,83 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
     return lines
 
 
-def resolve_scores(args, mode, scooby):
-    """Return (scores, player_name) or (None, None) on a handled lookup failure."""
+def _live_scores(args, index):
+    """Scrape current GrooveStats scores via a name->id index. (scores, name) or None."""
+    entry = index.get(args.username.lower())
+    if entry is None:
+        return None
+    entrant_id, player_name = entry
+    return scrape_entrant_scores(entrant_id, args.itl_base), player_name
+
+
+def _snapshot_scores(args, scooby):
+    """Snapshot scores for the player. Loads a snapshot if scooby lacks one.
+
+    Returns (scores, player_name) or (None, None).
+    """
+    if scooby.snapshot is None:
+        try:
+            path = args.snapshot or sources.find_latest_snapshot(args.snapshot_dir, args.catalog)
+        except FileNotFoundError:
+            return None, None
+        scooby = Scobility.from_snapshot(path)
+    try:
+        player, scores = scooby.find_player(args.username)
+    except KeyError:
+        return None, None
+    return scores, player['name']
+
+
+def resolve_scores(args, scooby):
+    """Resolve the player's scores per the requested mode.
+
+    Score source is independent of the spice source: snapshot uses the snapshot,
+    api uses a live scrape, and auto prefers the live scrape (always newest) and
+    falls back to the snapshot. Returns (scores, player_name) or (None, None).
+    """
     if args.itl_json:
         print(f'Scores:       export ({args.itl_json})')
         return scores_from_export(args.itl_json), (args.username or name_from_export(args.itl_json))
 
-    if mode == 'api':
+    if args.mode == 'snapshot':
+        scores, name = _snapshot_scores(args, scooby)
+        if scores is None:
+            print(f'\nNo player named {args.username!r} in the snapshot.', file=sys.stderr)
+            return None, None
+        print(f'Scores:       snapshot player ({name})')
+        return scores, name
+
+    if args.mode == 'api':
         index = sources.entrant_index_api(args.catalog, args.api_base, refresh=args.refresh)
-        entry = index.get(args.username.lower())
-        if entry is None:
+        live = _live_scores(args, index)
+        if live is None:
             print(f'\nNo GrooveStats entrant named {args.username!r}.', file=sys.stderr)
             near = suggest_names(args.username, index)
             if near:
                 print('Did you mean: ' + ', '.join(near), file=sys.stderr)
             return None, None
-        entrant_id, player_name = entry
-        print(f'Scores:       live scrape of {player_name} (ITL entrant #{entrant_id})')
-        return scrape_entrant_scores(entrant_id, args.itl_base), player_name
+        scores, name = live
+        print(f'Scores:       live GrooveStats scrape ({name})')
+        return scores, name
 
-    # snapshot mode
+    # auto: newest player scores win -> live scrape if reachable, else snapshot.
     try:
-        player, scores = scooby.find_player(args.username)
-    except KeyError:
-        print(f'\nNo player named {args.username!r} in the snapshot. Available names:', file=sys.stderr)
-        for name in scooby.player_names():
-            print(f'  {name}', file=sys.stderr)
+        index = sources.index_from_snapshot(scooby.snapshot) if scooby.snapshot else \
+            sources.entrant_index_api(args.catalog, args.api_base, refresh=args.refresh)
+        live = _live_scores(args, index)
+        if live is not None:
+            scores, name = live
+            print(f'Scores:       live GrooveStats scrape ({name}) [newest]')
+            return scores, name
+    except Exception as e:
+        print(f'(live scores unavailable: {e}; using snapshot)', file=sys.stderr)
+
+    scores, name = _snapshot_scores(args, scooby)
+    if scores is None:
+        print(f'\nCould not resolve scores for {args.username!r} (no live data and no snapshot match).', file=sys.stderr)
         return None, None
-    print(f'Scores:       snapshot player #{player["e_id"]}')
-    return scores, player['name']
+    print(f'Scores:       snapshot player ({name})')
+    return scores, name
 
 
 def main(argv=None):
@@ -215,7 +263,7 @@ def main(argv=None):
         parser.error('a username is required (or pass --itl-json)')
 
     try:
-        scooby, charts, unlock_folders, _snapshot, mode, src_lines = sources.resolve_catalog(
+        scooby, charts, unlock_folders, _snapshot, _mode, src_lines = sources.resolve_catalog(
             args.mode, snapshot_dir=args.snapshot_dir, catalog=args.catalog,
             api_base=args.api_base, itl_base=args.itl_base,
             snapshot_path=args.snapshot, charts_path=args.charts, refresh=args.refresh,
@@ -230,7 +278,7 @@ def main(argv=None):
     if orphan:
         print(f'WARNING: {len(orphan)} unlock folders not in charts.json: {sorted(orphan)[:5]}', file=sys.stderr)
 
-    scores, player_name = resolve_scores(args, mode, scooby)
+    scores, player_name = resolve_scores(args, scooby)
     if scores is None:
         return 1
 
