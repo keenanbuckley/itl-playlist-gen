@@ -64,8 +64,11 @@ def resolve_min_ex(spec, scores):
 
 def build_playlist_lines(data, min_ex=None):
     def ex_ok(song):
-        # Keep only charts the fit predicts the player scores at least min_ex on.
-        return min_ex is None or (song.targetEX is not None and song.targetEX >= min_ex)
+        # Charts you've already passed always stay; min_ex only gates new charts
+        # the fit predicts you'd score below the cutoff.
+        if min_ex is None or song.played:
+            return True
+        return song.targetEX is not None and song.targetEX >= min_ex
 
     allTargets = []
     targetsByRating = {}

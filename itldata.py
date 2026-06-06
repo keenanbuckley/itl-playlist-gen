@@ -84,6 +84,7 @@ class Song:
         self.passingPoints = chart['pointsPassing']
 
         # Per-player dynamic fields; default to "never played".
+        self.played = False
         self.clearType = 0
         self.date = None
         self.ex = 0.0
@@ -99,6 +100,7 @@ class Song:
         self.potentialRP = 0
 
     def apply_score(self, value, clear, last_played):
+        self.played = True
         self.clearType = clear
         self.date = last_played
         self.ex = value_to_ex(value)

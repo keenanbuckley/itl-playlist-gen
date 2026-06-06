@@ -106,7 +106,8 @@ counted.
 
 `--min-ex` drops any chart whose *predicted* EX (what the fit thinks you'd
 score, not a pass probability) is below the cutoff, so the list stays to charts
-you'd actually score well on:
+you'd actually score well on. Charts you've already passed are always kept; the
+cutoff only gates new charts:
 
 - `--min-ex auto` (the **default**) sets the cutoff to the **p10 of your own
   passing scores**, the EX you usually at least reach when you pass. `auto:P`
