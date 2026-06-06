@@ -215,6 +215,7 @@ class Scobility:
                 'value': v['value'],
                 'clear': v['clear'],
                 'last_played': v.get('last_played'),
+                'plays': v.get('plays'),
             }
         return player, scores
 

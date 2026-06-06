@@ -74,7 +74,8 @@ class Song:
         self.hsh = chart['hash']
 
         folder = chart['chartSongDir']
-        group = ITL_UNLOCK_GROUP if folder in unlock_folders else ITL_GROUP
+        self.is_unlock = folder in unlock_folders
+        group = ITL_UNLOCK_GROUP if self.is_unlock else ITL_GROUP
         self.path = f'{group}\\{folder}'
         self.rating = int(chart['meter'])
 
@@ -90,6 +91,7 @@ class Song:
         self.ex = 0.0
         self.ep = 0
         self.points = 0
+        self.plays = 0      # pass count (None if the source doesn't track it)
 
         # Filled in by Scobility.processPlayer.
         self.spice = None
@@ -99,10 +101,11 @@ class Song:
         self.potentialEP = 0
         self.potentialRP = 0
 
-    def apply_score(self, value, clear, last_played):
+    def apply_score(self, value, clear, last_played, plays=None):
         self.played = True
         self.clearType = clear
         self.date = last_played
+        self.plays = plays
         self.ex = value_to_ex(value)
         self.ep = EX2EP(self.ex)
         self.points = math.floor(self.passingPoints + self.maxScoringPoints * EX2SP(self.ex) * 0.01)
@@ -120,7 +123,7 @@ class ITLData:
             song = Song(chart, unlock_folders)
             score = player_scores.get(song.hsh)
             if score is not None:
-                song.apply_score(score['value'], score['clear'], score['last_played'])
+                song.apply_score(score['value'], score['clear'], score['last_played'], score.get('plays'))
             self.paths[song.path] = song
             self.hashes[song.hsh] = song
 

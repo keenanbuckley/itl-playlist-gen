@@ -119,6 +119,14 @@ Predicted EX clusters fairly high, so the cutoff bites mostly in the 65-90 range
 For one player: full catalog ~970 playlist lines, `auto` (p10 ~68%) ~530,
 `auto:20` (~70%) ~290, explicit `75` ~95.
 
+The playlist also ends with two sections: `---Unmastered` (charts you've passed
+fewer than `--practice-passes` times, default 3, AND scored under `--practice-ex`,
+default 85, including never-played, in ascending spice order) and
+`---Unmastered unlocks` (the same list restricted to unlock-pack charts). These
+need a pass count, so they're only emitted in snapshot/api mode, not from an
+`--itl-json` export. Charts *required* to trigger unlocks aren't exposed by the
+API or the export, so they can't be included.
+
 No third-party dependencies. Standard-library Python 3 only (the API mode uses
 `urllib`).
 

@@ -39,5 +39,6 @@ def scrape_entrant_scores(entrant_id, base_url=DEFAULT_ITL_BASE, timeout=30):
                 'value': 1.0 - s['ex'] / 10000.0,    # ex is EX% x100; value is diff-from-perfect
                 'clear': s['clearType'],
                 'last_played': s.get('lastImproved') or s.get('dateAdded'),
+                'plays': s.get('totalPasses'),
             }
     return scores

@@ -62,7 +62,7 @@ def resolve_min_ex(spec, scores):
     return float(s), f'min-EX:       {float(s):.1f}%'
 
 
-def build_playlist_lines(data, min_ex=None):
+def build_playlist_lines(data, min_ex=None, include_practice=False, practice_passes=3, practice_ex=85.0):
     def ex_ok(song):
         # Charts you've already passed always stay; min_ex only gates new charts
         # the fit predicts you'd score below the cutoff.
@@ -140,6 +140,22 @@ def build_playlist_lines(data, min_ex=None):
         for target in section:
             lines.append(target.path)
 
+    # Charts not yet mastered: passed fewer than practice_passes times AND below
+    # practice_ex. Needs a pass count, so it's only emitted for snapshot/scrape.
+    if include_practice:
+        suffix = f'(<{practice_passes} passes, <{practice_ex:.0f}% EX)'
+        unmastered = sorted(
+            (s for s in data.hashes.values() if (s.plays or 0) < practice_passes and s.ex < practice_ex),
+            key=lambda s: (s.spice is None, s.spice),
+        )
+        lines.append(f'---Unmastered {suffix}')
+        lines += [s.path for s in unmastered]
+
+        # Same list, restricted to unlock-pack charts. (Charts *required* for
+        # unlocks aren't in the API, so they can't be added.)
+        lines.append(f'---Unmastered unlocks {suffix}')
+        lines += [s.path for s in unmastered if s.is_unlock]
+
     return lines
 
 
@@ -190,6 +206,8 @@ def main(argv=None):
                         help="only keep charts whose predicted EX is at least this: a number (e.g. 70), "
                              "'auto' for the p10 of your passing scores, 'auto:P' for the Pth percentile, "
                              "or 'none' to disable (default: auto)")
+    parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')
+    parser.add_argument('--practice-ex', type=float, default=85.0, help='"Unmastered" section: Ex%% at which a chart counts as mastered (default: 85)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - <username>.txt)')
     args = parser.parse_args(argv)
 
@@ -236,7 +254,11 @@ def main(argv=None):
     if min_ex_msg:
         print('\n' + min_ex_msg)
 
-    lines = build_playlist_lines(data, min_ex=min_ex)
+    lines = build_playlist_lines(
+        data, min_ex=min_ex,
+        include_practice=(args.itl_json is None),    # export has no pass count
+        practice_passes=args.practice_passes, practice_ex=args.practice_ex,
+    )
 
     output = args.output or os.path.join(
         os.path.dirname(__file__), 'playlists', f'ITL - {player_name}.txt'

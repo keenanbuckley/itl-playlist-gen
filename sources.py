@@ -49,6 +49,7 @@ def scores_from_export(export_path):
                 'value': 1.0 - entry['ex'] / 10000.0,    # ex is EX% x100; value is diff-from-perfect
                 'clear': entry['clearType'],
                 'last_played': entry.get('date'),
+                'plays': None,    # ITL2026.json export has no pass count
             }
     return scores
 
