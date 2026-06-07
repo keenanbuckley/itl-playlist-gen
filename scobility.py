@@ -220,7 +220,8 @@ class Scobility:
             }
         return player, scores
 
-    def processPlayer(self, playerKey, itlData, spice_iqr_mult=None):
+    def processPlayer(self, playerKey, itlData, spice_iqr_mult=None,
+                      fit='horizon', adaptive_n=40, shrink_k=30.0):
         self.playerData[playerKey] = itlData
 
         # Attach spice to every chart we know (so unplayed charts can still be
@@ -255,14 +256,35 @@ class Scobility:
                 itlData.rejected_outliers = [s for s in played if not (lo <= s.spice <= hi)]
                 played = kept
 
-        coefs = spiceHorizonFit([x.spice for x in played], [x.quality for x in played])
-        itlData.cutPoint = coefs["cutPoint"]
-        itlData.horizonSpice = coefs["horizonSpice"]
-        itlData.horizonQuality = coefs["horizonQuality"]
-        itlData.mildSlope = coefs["mildSlope"]
-        itlData.hotSlope = coefs["hotSlope"]
-        itlData.timingPower = coefs["timingPower"]
-        itlData.residual = coefs["residual"]
+        # adaptive: horizon when there's enough data to trust its shape; for
+        # sparse players a linear fit with the slope shrunk toward flat (which
+        # cross-validates better than horizon there). Stored in the horizon
+        # shape (mild==hot, horizon at 0) so the downstream math is identical.
+        if fit == 'adaptive' and len(played) < adaptive_n:
+            xs = [s.spice for s in played]
+            qs = [s.quality for s in played]
+            n = len(played)
+            _c0, slope, _r = dumbassLSQFree(xs, qs)
+            b = n * slope / (n + shrink_k)
+            a = statistics.fmean(q - b * x for x, q in zip(xs, qs))
+            itlData.cutPoint = 0
+            itlData.horizonSpice = 0.0
+            itlData.horizonQuality = a
+            itlData.mildSlope = b
+            itlData.hotSlope = b
+            itlData.timingPower = a
+            itlData.residual = sum((q - (a + b * x)) ** 2 for x, q in zip(xs, qs))
+            itlData.fit_used = f'linear shrunk-to-flat (n={n} < {adaptive_n})'
+        else:
+            coefs = spiceHorizonFit([x.spice for x in played], [x.quality for x in played])
+            itlData.cutPoint = coefs["cutPoint"]
+            itlData.horizonSpice = coefs["horizonSpice"]
+            itlData.horizonQuality = coefs["horizonQuality"]
+            itlData.mildSlope = coefs["mildSlope"]
+            itlData.hotSlope = coefs["hotSlope"]
+            itlData.timingPower = coefs["timingPower"]
+            itlData.residual = coefs["residual"]
+            itlData.fit_used = 'horizon'
 
         for hsh, song in itlData.hashes.items():
             if song.spice is None:

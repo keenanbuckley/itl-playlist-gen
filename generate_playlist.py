@@ -25,9 +25,8 @@ import sys
 
 import sources
 from itldata import ITLData
-from scobility import Scobility, DEFAULT_API_BASE
-from groovestats import DEFAULT_ITL_BASE, suggest_names, scrape_entrant_scores
-from sources import scores_from_export, name_from_export
+from scobility import DEFAULT_API_BASE
+from groovestats import DEFAULT_ITL_BASE
 
 
 def _percentile(sorted_vals, p):
@@ -200,85 +199,6 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
     return lines
 
 
-def _live_scores(args, index):
-    """Scrape current GrooveStats scores via a name->id index. (scores, name) or None."""
-    entry = index.get(args.username.lower())
-    if entry is None:
-        return None
-    entrant_id, player_name = entry
-    return scrape_entrant_scores(entrant_id, args.itl_base), player_name
-
-
-def _snapshot_scores(args, scooby):
-    """Snapshot scores for the player. Loads a snapshot if scooby lacks one.
-
-    Returns (scores, player_name) or (None, None).
-    """
-    if scooby.snapshot is None:
-        try:
-            path = args.snapshot or sources.find_latest_snapshot(args.snapshot_dir, args.catalog)
-        except FileNotFoundError:
-            return None, None
-        scooby = Scobility.from_snapshot(path)
-    try:
-        player, scores = scooby.find_player(args.username)
-    except KeyError:
-        return None, None
-    return scores, player['name']
-
-
-def resolve_scores(args, scooby):
-    """Resolve the player's scores per the requested mode.
-
-    Score source is independent of the spice source: snapshot uses the snapshot,
-    api uses a live scrape, and auto prefers the live scrape (always newest) and
-    falls back to the snapshot. Returns (scores, player_name) or (None, None).
-    """
-    if args.itl_json:
-        print(f'Scores:       export ({args.itl_json})')
-        return scores_from_export(args.itl_json), (args.username or name_from_export(args.itl_json))
-
-    if args.mode == 'snapshot':
-        scores, name = _snapshot_scores(args, scooby)
-        if scores is None:
-            print(f'\nNo player named {args.username!r} in the snapshot.', file=sys.stderr)
-            return None, None
-        print(f'Scores:       snapshot player ({name})')
-        return scores, name
-
-    if args.mode == 'api':
-        index = sources.entrant_index_api(args.catalog, args.api_base, refresh=args.refresh)
-        live = _live_scores(args, index)
-        if live is None:
-            print(f'\nNo GrooveStats entrant named {args.username!r}.', file=sys.stderr)
-            near = suggest_names(args.username, index)
-            if near:
-                print('Did you mean: ' + ', '.join(near), file=sys.stderr)
-            return None, None
-        scores, name = live
-        print(f'Scores:       live GrooveStats scrape ({name})')
-        return scores, name
-
-    # auto: newest player scores win -> live scrape if reachable, else snapshot.
-    try:
-        index = sources.index_from_snapshot(scooby.snapshot) if scooby.snapshot else \
-            sources.entrant_index_api(args.catalog, args.api_base, refresh=args.refresh)
-        live = _live_scores(args, index)
-        if live is not None:
-            scores, name = live
-            print(f'Scores:       live GrooveStats scrape ({name}) [newest]')
-            return scores, name
-    except Exception as e:
-        print(f'(live scores unavailable: {e}; using snapshot)', file=sys.stderr)
-
-    scores, name = _snapshot_scores(args, scooby)
-    if scores is None:
-        print(f'\nCould not resolve scores for {args.username!r} (no live data and no snapshot match).', file=sys.stderr)
-        return None, None
-    print(f'Scores:       snapshot player ({name})')
-    return scores, name
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('username', nargs='?', help='player name (snapshot player / GrooveStats entrant; defaults to the export filename with --itl-json)')
@@ -295,6 +215,8 @@ def main(argv=None):
                         help="only keep charts whose predicted EX is at least this: a number (e.g. 70), "
                              "'auto' for the p10 of your passing scores, 'auto:P' for the Pth percentile, "
                              "or 'none' to disable (default: auto)")
+    parser.add_argument('--fit', choices=['adaptive', 'horizon'], default='adaptive', help='spice fit: adaptive (horizon when data-rich, flat-shrunk when sparse) or horizon (official scobility) (default: adaptive)')
+    parser.add_argument('--adaptive-n', type=int, default=40, help='adaptive fit: use horizon at/above this many played charts, else flat-shrunk linear (default: 40)')
     parser.add_argument('--spice-iqr', type=float, metavar='K', help='reject spice outliers from the horizon fit beyond Q1-K*IQR / Q3+K*IQR of your passed charts (e.g. 4.0; off by default)')
     parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')
     parser.add_argument('--practice-ex', type=float, default=85.0, help='"Unmastered" section: Ex%% at which a chart counts as mastered (default: 85)')
@@ -320,7 +242,7 @@ def main(argv=None):
     if orphan:
         print(f'WARNING: {len(orphan)} unlock folders not in charts.json: {sorted(orphan)[:5]}', file=sys.stderr)
 
-    scores, player_name = resolve_scores(args, scooby)
+    scores, player_name = sources.resolve_scores(args, scooby)
     if scores is None:
         return 1
 
@@ -328,7 +250,8 @@ def main(argv=None):
 
     data = ITLData(charts, unlock_folders, scores)
     try:
-        scooby.processPlayer(player_name, data, spice_iqr_mult=args.spice_iqr)
+        scooby.processPlayer(player_name, data, spice_iqr_mult=args.spice_iqr,
+                             fit=args.fit, adaptive_n=args.adaptive_n)
     except ValueError as e:
         print(f'\nCould not compute targets: {e}', file=sys.stderr)
         return 1
@@ -338,11 +261,14 @@ def main(argv=None):
         more = '' if len(data.rejected_outliers) <= 5 else f' (+{len(data.rejected_outliers) - 5} more)'
         print(f'Spice outliers rejected from fit (IQR x{args.spice_iqr:g}): {len(data.rejected_outliers)} - {names}{more}')
 
-    print('\nScobility fit (two-segment horizon):')
+    print(f'\nScobility fit ({data.fit_used}):')
     print(f'  timing power:    {data.timingPower:7.3f}')
-    print(f'  spice horizon:   {data.horizonSpice:7.3f}  (quality {data.horizonQuality:.3f})')
-    print(f'  mild sauce:      {data.mildSlope:7.3f}  (slope below the horizon)')
-    print(f'  hot sauce:       {data.hotSlope:7.3f}  (slope above the horizon)')
+    if data.fit_used == 'horizon':
+        print(f'  spice horizon:   {data.horizonSpice:7.3f}  (quality {data.horizonQuality:.3f})')
+        print(f'  mild sauce:      {data.mildSlope:7.3f}  (slope below the horizon)')
+        print(f'  hot sauce:       {data.hotSlope:7.3f}  (slope above the horizon)')
+    else:
+        print(f'  slope:           {data.mildSlope:7.3f}  (quality per spice, shrunk toward flat)')
     print(f'  fit residual:    {data.residual:7.3f}')
 
     min_ex, min_ex_msg = resolve_min_ex(args.min_ex, scores)

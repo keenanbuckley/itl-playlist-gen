@@ -3,6 +3,8 @@ __pycache__/
 
 # Personal data drops and generated output.
 playlists/*.txt
+plots/*.svg
+plots/*.png
 *.snapshot.json
 
 # api-mode caches that change as scobility/entrants update (charts.json and

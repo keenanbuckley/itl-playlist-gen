@@ -119,6 +119,22 @@ labeled with that bin's min/max spice, then two catalog-wide sections:
 
 Every chart can appear in several sections. Unspiced charts are skipped and counted.
 
+### Spice plot (`spice_plot.py`)
+
+Renders the scobility scatter as a standalone SVG: each played chart at (chart
+spice, score quality), the two-segment horizon fit over it, points sized by pass
+count and tinted by recency, and any `--spice-iqr` outliers as hollow rings.
+Same source/score options as `generate_playlist.py`.
+
+```bash
+python spice_plot.py "HFocus77"
+python spice_plot.py "HFocus77" --mode api --spice-iqr 4.0
+```
+
+Writes `plots/ITL - <username>.svg` and, if a renderer is on the system
+(`rsvg-convert`, `inkscape`, or the `cairosvg` module), a matching `.png`. The
+SVG itself needs no dependencies; only the optional PNG render does.
+
 `--min-ex` drops any chart whose *predicted* EX (what the fit thinks you'd
 score, not a pass probability) is below the cutoff, so the list stays to charts
 you'd actually score well on. Charts you've already passed are always kept; the
@@ -140,6 +156,13 @@ a good value - it rejects only egregious traps (a [07] like Gruntilda's Lair at
 spice ~1.4 for a player who otherwise passes ~0.5) while rejecting nothing on the
 full catalog. Smaller K (e.g. the textbook 1.5) also trims legitimate low-spice
 charts, because the catalog spice is right-skewed.
+
+`--fit` chooses the spice fit. The default `adaptive` uses the two-segment
+horizon fit when the player has at least `--adaptive-n` played charts (40), and a
+linear fit with the slope shrunk toward flat when they have fewer (horizon
+overfits on sparse data). Cross-validation across ~400 players found `adaptive`
+predicts held-out EX best overall; `--fit horizon` forces the plain horizon fit,
+matching official scobility. (See `cv_eval.py` for the comparison harness.)
 
 ### Sections
 
@@ -166,7 +189,7 @@ No third-party dependencies. Standard-library Python 3 only (the API mode uses
 ## How it works
 
 `scobility.py` loads spice (from a snapshot or the live API), fits the player's
-two-segment "horizon" curve (score quality vs. log-spice) over the charts they've
+score-quality vs. log-spice curve (the adaptive fit by default; see `--fit`) over the charts they've
 actually played, then inverts it to a target EX for every chart with known spice
 and converts that to potential SP/EP/RP. `generate_playlist.py` groups those
 targets into playlist sections (all +RP, per block rating, by pass month).
@@ -182,6 +205,8 @@ each chart's on-disk group from `unlock_folders.txt`.
 | `sources.py` | the two modes: resolves spice/catalog/unlock (and api-mode caching) |
 | `scobility.py` | spice loader (snapshot/API/raw), player lookup, horizon fit, RP targets |
 | `spice_playlist.py` | player-independent playlist of every chart ordered by spice |
+| `spice_plot.py` | SVG (+ PNG) spice-vs-score-quality scatter with the fit |
+| `cv_eval.py` | cross-validate spice->EX fit models per player (analysis) |
 | `groovestats.py` | live GrooveStats score scrape + name suggestions |
 | `fetch_catalog.py` | scrape charts.json + derive unlock_folders.txt from the ITL API |
 | `itldata.py` | ITL scoring math; per-player chart model |
