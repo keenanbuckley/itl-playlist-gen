@@ -258,6 +258,7 @@ class Scobility:
                 qualityFit = itlData.mildSlope * (song.spice - itlData.horizonSpice) + itlData.horizonQuality
             else:
                 qualityFit = itlData.hotSlope * (song.spice - itlData.horizonSpice) + itlData.horizonQuality
+            song.qualityFit = qualityFit
 
             targetEX = 100.0 * (PERFECT_OFFSET - pow(2, song.spice - qualityFit))
             if targetEX > 100:

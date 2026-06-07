@@ -106,10 +106,16 @@ python spice_playlist.py --mode snapshot
 python spice_playlist.py --mode api
 ```
 
-Output defaults to `playlists/ITL - spice order.txt`: a full `---All (spice
-order)` section, then bins of 10 charts (`--bin-size` to change) each labeled
-with that bin's min/max spice. Every chart appears in both. Unspiced charts are
-skipped and counted.
+Output defaults to `playlists/ITL - spice order.txt`. It contains a full `---All
+(spice order)` section, then bins of 10 charts (`--bin-size` to change) each
+labeled with that bin's min/max spice, then two catalog-wide sections:
+
+- `Spice traps (hardest for their block)` - charts whose spice most exceeds the
+  average for their block rating (`--trap-count`, default 40).
+- `Tech: <type>` - each chart under its dominant tech (crossover, bracket,
+  footswitch, jack, sideswitch, doublestep, stamina), levels normalized per tech.
+
+Every chart can appear in several sections. Unspiced charts are skipped and counted.
 
 `--min-ex` drops any chart whose *predicted* EX (what the fit thinks you'd
 score, not a pass probability) is below the cutoff, so the list stays to charts
@@ -125,13 +131,24 @@ Predicted EX clusters fairly high, so the cutoff bites mostly in the 65-90 range
 For one player: full catalog ~970 playlist lines, `auto` (p10 ~68%) ~530,
 `auto:20` (~70%) ~290, explicit `75` ~95.
 
-The playlist also ends with two sections: `---Unmastered` (charts you've passed
-fewer than `--practice-passes` times, default 3, AND scored under `--practice-ex`,
-default 85, including never-played, in ascending spice order) and
-`---Unmastered unlocks` (the same list restricted to unlock-pack charts). These
-need a pass count, so they're only emitted in snapshot/api mode, not from an
-`--itl-json` export. Charts *required* to trigger unlocks aren't exposed by the
-API or the export, so they can't be included.
+### Sections
+
+`generate_playlist.py` emits these `---` sections (a chart can appear in several):
+
+- `All +RP` / per-block `[NN] +RP` - everything with RP to gain.
+- `Passed +RP`, `Passed +SP`, `Passed +EP` - already-passed charts with room to
+  gain, overall and split by points pool.
+- `Efficient RP` - most RP per unit of (linear) spice: the low-hanging fruit.
+- `Underperformed (vs your fit)` - played charts you scored below what your skill
+  curve predicts: your weak spots, biggest gap first.
+- `At your ceiling` - charts at and just above your fitted spice horizon.
+- `Best score from <month>` / `Never passed` - passed charts by month, and new
+  charts (spice order).
+- `Unmastered` / `Unmastered unlocks` - passed fewer than `--practice-passes`
+  times (3) AND under `--practice-ex` (85), including never-played; and the same
+  restricted to unlock-pack charts. These need a pass count, so they're only
+  emitted in snapshot/api mode, not from an `--itl-json` export. (Charts
+  *required* to trigger unlocks aren't exposed by the API or export.)
 
 No third-party dependencies. Standard-library Python 3 only (the API mode uses
 `urllib`).

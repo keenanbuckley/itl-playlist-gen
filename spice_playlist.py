@@ -35,6 +35,7 @@ def main(argv=None):
     parser.add_argument('--api-base', default=DEFAULT_API_BASE, help=f'scobility API base URL (default: {DEFAULT_API_BASE})')
     parser.add_argument('--itl-base', default=DEFAULT_ITL_BASE, help=f'ITL GrooveStats API base URL (default: {DEFAULT_ITL_BASE})')
     parser.add_argument('--bin-size', type=int, default=10, help='charts per bin in the binned sections (default: 10)')
+    parser.add_argument('--trap-count', type=int, default=40, help='how many charts in the spice-traps section (default: 40)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - spice order.txt)')
     args = parser.parse_args(argv)
 
@@ -66,6 +67,36 @@ def main(argv=None):
         chunk = spiced[i:i + bin_size]
         lines.append(f'---{chunk[0][0]:.2f} - {chunk[-1][0]:.2f} spice')
         lines += [song.path for _, song in chunk]
+
+    # Spice traps: charts whose spice most exceeds the average for their block.
+    by_meter = {}
+    for spice, song in spiced:
+        by_meter.setdefault(song.rating, []).append(spice)
+    meter_avg = {m: sum(v) / len(v) for m, v in by_meter.items()}
+    traps = sorted(spiced, reverse=True, key=lambda x: x[0] - meter_avg[x[1].rating])
+    lines.append('---Spice traps (hardest for their block)')
+    lines += [song.path for _, song in traps[:max(0, args.trap_count)]]
+
+    # Tech sections: each chart's dominant tech (per-tech levels normalized by
+    # their catalog max, since the raw scales differ a lot).
+    TECHS = ['crossoverLevel', 'bracketLevel', 'footswitchLevel', 'jackLevel',
+             'sideswitchLevel', 'doublestepLevel', 'staminaLevel']
+    chart_by_hash = {c['hash']: c for c in charts.values()}
+    tech_max = {t: max((chart_by_hash[s.hsh].get(t) or 0 for _, s in spiced), default=0) for t in TECHS}
+    tech_groups = {t: [] for t in TECHS}
+    for spice, song in spiced:
+        c = chart_by_hash.get(song.hsh)
+        if not c:
+            continue
+        scored = [((c.get(t) or 0) / tech_max[t] if tech_max[t] else 0, t) for t in TECHS]
+        strength, tech = max(scored)
+        if strength > 0:
+            tech_groups[tech].append((spice, song))
+    for t in TECHS:
+        group = sorted(tech_groups[t], key=lambda x: x[0])
+        if group:
+            lines.append(f'---Tech: {t[:-len("Level")].capitalize()}')
+            lines += [song.path for _, song in group]
 
     output = args.output or os.path.join(os.path.dirname(__file__), 'playlists', 'ITL - spice order.txt')
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)

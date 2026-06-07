@@ -96,6 +96,7 @@ class Song:
         # Filled in by Scobility.processPlayer.
         self.spice = None
         self.quality = None
+        self.qualityFit = None      # score quality the fit predicts at this spice
         self.targetEX = None        # EX the fit predicts this player would score
         self.potentialSP = 0
         self.potentialEP = 0

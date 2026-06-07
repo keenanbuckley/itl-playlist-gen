@@ -121,6 +121,47 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
         for target in sorted(passed, reverse=True, key=lambda x: x.potentialRP):
             lines.append(target.path)
 
+    # Passed charts with room to gain, split by points pool.
+    passed_sp = sorted((s for s in data.hashes.values() if s.played and s.potentialSP > 0),
+                       reverse=True, key=lambda s: s.potentialSP)
+    if passed_sp:
+        lines.append("---Passed +SP")
+        lines += [s.path for s in passed_sp]
+    passed_ep = sorted((s for s in data.hashes.values() if s.played and s.potentialEP > 0),
+                       reverse=True, key=lambda s: s.potentialEP)
+    if passed_ep:
+        lines.append("---Passed +EP")
+        lines += [s.path for s in passed_ep]
+
+    # Most RP per unit of (linear) difficulty -- the low-hanging fruit.
+    efficient = sorted((s for s in allTargets if s.spice is not None),
+                       reverse=True, key=lambda s: s.potentialRP / (2 ** s.spice))
+    if efficient:
+        lines.append("---Efficient RP (most gain per spice)")
+        lines += [s.path for s in efficient]
+
+    # Played charts you scored below what your fit predicts: your weak spots.
+    under = sorted(
+        (s for s in data.hashes.values()
+         if s.played and s.quality is not None and s.qualityFit is not None and s.quality < s.qualityFit),
+        reverse=True, key=lambda s: s.qualityFit - s.quality,
+    )
+    if under:
+        lines.append("---Underperformed (vs your fit)")
+        lines += [s.path for s in under]
+
+    # Charts at and just above your skill horizon -- level-up targets.
+    hz = getattr(data, 'horizonSpice', None)
+    if hz is not None:
+        lo, hi = hz, hz + 0.75
+        ceiling_charts = sorted(
+            (s for s in data.hashes.values() if s.spice is not None and lo <= s.spice <= hi),
+            key=lambda s: s.spice,
+        )
+        if ceiling_charts:
+            lines.append(f'---At your ceiling ({lo:.2f}-{hi:.2f} spice)')
+            lines += [s.path for s in ceiling_charts]
+
     for rating in sorted(targetsByRating.keys()):
         minRP = min(x.potentialRP for x in targetsByRating[rating])
         maxRP = max(x.potentialRP for x in targetsByRating[rating])
