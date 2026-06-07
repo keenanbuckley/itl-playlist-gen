@@ -295,6 +295,7 @@ def main(argv=None):
                         help="only keep charts whose predicted EX is at least this: a number (e.g. 70), "
                              "'auto' for the p10 of your passing scores, 'auto:P' for the Pth percentile, "
                              "or 'none' to disable (default: auto)")
+    parser.add_argument('--spice-iqr', type=float, metavar='K', help='reject spice outliers from the horizon fit beyond Q1-K*IQR / Q3+K*IQR of your passed charts (e.g. 4.0; off by default)')
     parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')
     parser.add_argument('--practice-ex', type=float, default=85.0, help='"Unmastered" section: Ex%% at which a chart counts as mastered (default: 85)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - <username>.txt)')
@@ -327,10 +328,15 @@ def main(argv=None):
 
     data = ITLData(charts, unlock_folders, scores)
     try:
-        scooby.processPlayer(player_name, data)
+        scooby.processPlayer(player_name, data, spice_iqr_mult=args.spice_iqr)
     except ValueError as e:
         print(f'\nCould not compute targets: {e}', file=sys.stderr)
         return 1
+
+    if data.rejected_outliers:
+        names = ', '.join(s.path.split('\\')[-1] for s in data.rejected_outliers[:5])
+        more = '' if len(data.rejected_outliers) <= 5 else f' (+{len(data.rejected_outliers) - 5} more)'
+        print(f'Spice outliers rejected from fit (IQR x{args.spice_iqr:g}): {len(data.rejected_outliers)} - {names}{more}')
 
     print('\nScobility fit (two-segment horizon):')
     print(f'  timing power:    {data.timingPower:7.3f}')

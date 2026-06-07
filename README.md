@@ -133,6 +133,14 @@ Predicted EX clusters fairly high, so the cutoff bites mostly in the 65-90 range
 For one player: full catalog ~970 playlist lines, `auto` (p10 ~68%) ~530,
 `auto:20` (~70%) ~290, explicit `75` ~95.
 
+`--spice-iqr K` (off by default) drops spice outliers from the horizon fit:
+passed charts whose spice falls outside `Q1 - K*IQR .. Q3 + K*IQR` of your passed
+charts are excluded from the fit (they still appear in the playlist). `K=4.0` is
+a good value - it rejects only egregious traps (a [07] like Gruntilda's Lair at
+spice ~1.4 for a player who otherwise passes ~0.5) while rejecting nothing on the
+full catalog. Smaller K (e.g. the textbook 1.5) also trims legitimate low-spice
+charts, because the catalog spice is right-skewed.
+
 ### Sections
 
 `generate_playlist.py` emits these `---` sections (a chart can appear in several):

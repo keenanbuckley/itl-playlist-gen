@@ -9,6 +9,7 @@ JSON produced by the offline pipeline.
 
 import json
 import math
+import statistics
 import urllib.request
 
 from itldata import EX2SP, EX2EP
@@ -219,7 +220,7 @@ class Scobility:
             }
         return player, scores
 
-    def processPlayer(self, playerKey, itlData):
+    def processPlayer(self, playerKey, itlData, spice_iqr_mult=None):
         self.playerData[playerKey] = itlData
 
         # Attach spice to every chart we know (so unplayed charts can still be
@@ -240,6 +241,19 @@ class Scobility:
             raise ValueError(
                 f'not enough played charts with known spice to fit ({len(played)} found, need >= 5)'
             )
+
+        # Optional Tukey-fence rejection of spice outliers from the fit set. The
+        # rejected charts keep their spice/targets; they're just out of the fit.
+        itlData.rejected_outliers = []
+        if spice_iqr_mult is not None and len(played) >= 4:
+            spices = sorted(s.spice for s in played)
+            q1, _q2, q3 = statistics.quantiles(spices, n=4, method='exclusive')
+            iqr = q3 - q1
+            lo, hi = q1 - spice_iqr_mult * iqr, q3 + spice_iqr_mult * iqr
+            kept = [s for s in played if lo <= s.spice <= hi]
+            if len(kept) >= 5:
+                itlData.rejected_outliers = [s for s in played if not (lo <= s.spice <= hi)]
+                played = kept
 
         coefs = spiceHorizonFit([x.spice for x in played], [x.quality for x in played])
         itlData.cutPoint = coefs["cutPoint"]
