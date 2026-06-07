@@ -112,6 +112,8 @@ labeled with that bin's min/max spice, then two catalog-wide sections:
 
 - `Spice traps (hardest for their block)` - charts whose spice most exceeds the
   average for their block rating (`--trap-count`, default 40).
+- `Spice gifts (easiest for their block)` - the opposite: spice well below their
+  block average, i.e. easier to score than the rating suggests.
 - `Tech: <type>` - each chart under its dominant tech (crossover, bracket,
   footswitch, jack, sideswitch, doublestep, stamina), levels normalized per tech.
 

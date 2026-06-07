@@ -73,9 +73,13 @@ def main(argv=None):
     for spice, song in spiced:
         by_meter.setdefault(song.rating, []).append(spice)
     meter_avg = {m: sum(v) / len(v) for m, v in by_meter.items()}
-    traps = sorted(spiced, reverse=True, key=lambda x: x[0] - meter_avg[x[1].rating])
+    by_divergence = sorted(spiced, key=lambda x: x[0] - meter_avg[x[1].rating])
+    n = max(0, args.trap_count)
     lines.append('---Spice traps (hardest for their block)')
-    lines += [song.path for _, song in traps[:max(0, args.trap_count)]]
+    lines += [song.path for _, song in by_divergence[::-1][:n]]
+    # The opposite: spice well below the block average -- easier than they look.
+    lines.append('---Spice gifts (easiest for their block)')
+    lines += [song.path for _, song in by_divergence[:n]]
 
     # Tech sections: each chart's dominant tech (per-tech levels normalized by
     # their catalog max, since the raw scales differ a lot).
