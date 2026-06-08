@@ -182,7 +182,7 @@ opt-in. It's the same per-player tech model `tech_plot.py` visualizes.
 Renders how a player over/under-performs on charts heavy in a given tech, beyond
 what spice alone predicts. It regresses your per-chart score quality (minus your
 spice fit) on z-scored chart tech features, then shows the reliable axes (stamina,
-brackets, footswitch, crossover, XMOD) two ways: an **EX%-impact** bar chart (how
+brackets, footswitch, crossover, no CMOD) two ways: an **EX%-impact** bar chart (how
 many EX points a chart heavy in that tech is worth to you, with error bars) and a
 **percentile radar** vs the field (50 = average), each axis labelled with a letter
 grade (C = average, S/A/B above, D/E/F below). Same source/score options as
@@ -230,7 +230,7 @@ python build_tech_population.py --sleep 1.0   # gentler on the server
   emitted in snapshot/api mode, not from an `--itl-json` export. (Charts
   *required* to trigger unlocks aren't exposed by the API or export.)
 - `Tech: <name>` (with `--tech-sections`) - one section per reliable tech
-  (stamina/brackets/footswitch/crossover/XMOD), each listing RP-gaining charts
+  (stamina/brackets/footswitch/crossover/no CMOD), each listing RP-gaining charts
   whose dominant reliable tech is that one, spice-ordered. Sections run **weakest
   tech first**, and each header shows your grade and percentile for that tech
   (e.g. `---Tech: footswitch (you: E, p16)`), so the charts you most need to

@@ -3,7 +3,7 @@ each tech, beyond what spice predicts.
 
 The profile is the ridge regression of (score quality - spice fit) on z-scored
 chart tech features. Display the reliable axes (stamina, brackets, footswitch,
-crossover, XMOD) per the split-half reliability study; the rest are fit but
+crossover, no CMOD) per the split-half reliability study; the rest are fit but
 not shown. Two views: EX%-impact (bars) and percentile-vs-field (radar).
 """
 
@@ -24,7 +24,7 @@ FEATURES = TECHS + ['isNoCmod']
 # Reliable axes (split-half SB >= ~0.7), in display order, with friendly labels.
 DISPLAY = [('staminaLevel', 'stamina'), ('bracketLevel', 'brackets'),
            ('footswitchLevel', 'footswitch'), ('crossoverLevel', 'crossover'),
-           ('isNoCmod', 'XMOD')]
+           ('isNoCmod', 'no CMOD')]
 DEFAULT_LAMBDA = 40.0
 POP_CACHE = os.path.join(os.path.dirname(__file__), 'data', 'ITL2026', 'tech_population.json')
 
