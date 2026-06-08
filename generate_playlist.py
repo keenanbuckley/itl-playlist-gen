@@ -24,6 +24,7 @@ import os
 import sys
 
 import sources
+import tech
 from itldata import ITLData
 from scobility import DEFAULT_API_BASE
 from groovestats import DEFAULT_ITL_BASE
@@ -218,6 +219,8 @@ def main(argv=None):
     parser.add_argument('--fit', choices=['adaptive', 'horizon'], default='adaptive', help='spice fit: adaptive (horizon when data-rich, flat-shrunk when sparse) or horizon (official scobility) (default: adaptive)')
     parser.add_argument('--adaptive-n', type=int, default=40, help='adaptive fit: use horizon at/above this many played charts, else flat-shrunk linear (default: 40)')
     parser.add_argument('--spice-iqr', type=float, metavar='K', help='reject spice outliers from the horizon fit beyond Q1-K*IQR / Q3+K*IQR of your passed charts (e.g. 4.0; off by default)')
+    parser.add_argument('--tech-target', action='store_true', help='nudge target EX by your per-tech strengths/weaknesses (ridge on tech features beyond spice; off by default)')
+    parser.add_argument('--tech-cap', type=float, default=5.0, metavar='EX', help='--tech-target: max EX a chart\'s target can move from the spice-only value (default: 5)')
     parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')
     parser.add_argument('--practice-ex', type=float, default=85.0, help='"Unmastered" section: Ex%% at which a chart counts as mastered (default: 85)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - <username>.txt)')
@@ -270,6 +273,14 @@ def main(argv=None):
     else:
         print(f'  slope:           {data.mildSlope:7.3f}  (quality per spice, shrunk toward flat)')
     print(f'  fit residual:    {data.residual:7.3f}')
+
+    if args.tech_target:
+        overlay = tech.build_target_overlay(data, charts)
+        if overlay is None:
+            print('  tech target:     skipped (too few played charts to fit)')
+        else:
+            scooby.recompute_targets(data, overlay=overlay, ex_cap=args.tech_cap)
+            print(f'  tech target:     on (per-chart EX capped at +-{args.tech_cap:g})')
 
     min_ex, min_ex_msg = resolve_min_ex(args.min_ex, scores)
     if min_ex_msg:

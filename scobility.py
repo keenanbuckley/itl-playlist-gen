@@ -26,6 +26,16 @@ DEFAULT_API_BASE = 'https://scobility.azurewebsites.net'
 PERFECT_OFFSET = 1.003
 
 
+def _target_ex_from_quality(spice, qf):
+    """Invert the score-quality fit to a target EX (clamped to 0..100, 2dp)."""
+    ex = 100.0 * (PERFECT_OFFSET - pow(2, spice - qf))
+    if ex > 100:
+        return 100
+    if ex < 0:
+        return 0
+    return math.floor(ex * 100 + 0.5) * 0.01
+
+
 def dumbassLSQComponents(a, b):
     s, s2, q, sq = 0, 0, 0, 0
     for i, va in enumerate(a):
@@ -293,6 +303,16 @@ class Scobility:
             itlData.residual = coefs["residual"]
             itlData.fit_used = 'horizon'
 
+        self.recompute_targets(itlData)
+
+    def recompute_targets(self, itlData, overlay=None, ex_cap=None):
+        """Set each chart's qualityFit/targetEX/potential* from the spice fit.
+
+        `overlay`, if given, is a callable song -> extra score quality (the
+        tech-aware adjustment); the spice-only fit is kept on `song.qualityFit`,
+        the adjusted prediction drives targetEX, and `ex_cap` bounds how far the
+        adjustment can move a chart's target EX from the spice-only value.
+        """
         for hsh, song in itlData.hashes.items():
             if song.spice is None:
                 continue
@@ -303,13 +323,12 @@ class Scobility:
                 qualityFit = itlData.hotSlope * (song.spice - itlData.horizonSpice) + itlData.horizonQuality
             song.qualityFit = qualityFit
 
-            targetEX = 100.0 * (PERFECT_OFFSET - pow(2, song.spice - qualityFit))
-            if targetEX > 100:
-                targetEX = 100
-            if targetEX < 0:
-                targetEX = 0
-            else:
-                targetEX = math.floor(targetEX * 100 + 0.5) * 0.01
+            targetEX = _target_ex_from_quality(song.spice, qualityFit)
+            if overlay is not None:
+                adj = _target_ex_from_quality(song.spice, qualityFit + overlay(song))
+                if ex_cap is not None:
+                    adj = min(targetEX + ex_cap, max(targetEX - ex_cap, adj))
+                targetEX = adj
 
             song.targetEX = targetEX
 

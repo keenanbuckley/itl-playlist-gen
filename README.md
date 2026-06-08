@@ -87,6 +87,9 @@ python generate_playlist.py "HFocus77" --mode api --min-ex 70
 # api mode, refresh cached spice + entrant index
 python generate_playlist.py "HFocus77" --mode api --refresh
 
+# nudge target EX by your per-tech strengths/weaknesses (beyond spice)
+python generate_playlist.py "HFocus77" --mode api --tech-target
+
 # unknown name -> prints close matches / the available players
 python generate_playlist.py "whoami"
 ```
@@ -163,6 +166,16 @@ linear fit with the slope shrunk toward flat when they have fewer (horizon
 overfits on sparse data). Cross-validation across ~400 players found `adaptive`
 predicts held-out EX best overall; `--fit horizon` forces the plain horizon fit,
 matching official scobility. (See `cv_eval.py` for the comparison harness.)
+
+`--tech-target` (off by default) nudges each chart's target EX by your per-tech
+strengths and weaknesses, beyond what spice predicts: it ridge-regresses your
+score-quality residual (actual minus the spice fit) on the chart's z-scored tech
+features, then adds that back when inverting to a target. Targets rise on charts
+heavy in tech you're strong at and fall where you're weak. `--tech-cap` (default
+5) bounds how far a chart's target can move from the spice-only value, since
+unplayed charts can carry tech the fit never saw. The gain is real but small in
+cross-validation (~0.04-0.06 EX MAE, never worse; see `cv_tech.py`), so it's
+opt-in. It's the same per-player tech model `tech_plot.py` visualizes.
 
 ### Tech profile (`tech_plot.py`)
 
@@ -244,6 +257,7 @@ each chart's on-disk group from `unlock_folders.txt`.
 | `tech.py` | tech-feature ridge fit, EX%-impact, percentile cohort math |
 | `build_tech_population.py` | rebuild the bundled radar cohort from the live API |
 | `cv_eval.py` | cross-validate spice->EX fit models per player (analysis) |
+| `cv_tech.py` | cross-validate the tech-aware target adjustment vs spice-only (analysis) |
 | `groovestats.py` | live GrooveStats score scrape + name suggestions |
 | `fetch_catalog.py` | scrape charts.json + derive unlock_folders.txt from the ITL API |
 | `itldata.py` | ITL scoring math; per-player chart model |

@@ -152,6 +152,31 @@ def player_profile(pairs, feat_by_hash, lam=DEFAULT_LAMBDA):
     return f, gamma, se, len(X)
 
 
+def build_target_overlay(itlData, charts, lam=DEFAULT_LAMBDA):
+    """Tech-aware target adjustment as a callable song -> extra score quality.
+
+    Ridge-regresses the player's production-fit residual (song.quality minus the
+    spice fit's song.qualityFit) on the chart's z-scored tech features, so the
+    overlay is tied to whatever spice fit processPlayer used. Returns None when
+    there are too few played charts to fit. Call after processPlayer.
+    """
+    mean, std, _hi = feature_stats(charts)
+    feat_by_hash = feature_vectors(charts, mean, std)
+    X, y = [], []
+    for song in itlData.hashes.values():
+        if song.quality is not None and song.qualityFit is not None and song.hsh in feat_by_hash:
+            X.append(feat_by_hash[song.hsh])
+            y.append(song.quality - song.qualityFit)
+    if len(X) <= len(FEATURES) + 1:
+        return None
+    beta, _cov = _ridge_cov(X, y, lam)
+
+    def overlay(song):
+        v = feat_by_hash.get(song.hsh)
+        return sum(beta[k] * v[k] for k in range(len(beta))) if v else 0.0
+    return overlay
+
+
 def ex_impact(gamma_f, fit, spice_ref, z_load):
     """EX-point swing on a 'heavy' chart of this tech at the player's typical spice."""
     qf = fit(spice_ref)
