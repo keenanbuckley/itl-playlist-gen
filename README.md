@@ -229,6 +229,13 @@ python build_tech_population.py --sleep 1.0   # gentler on the server
   restricted to unlock-pack charts. These need a pass count, so they're only
   emitted in snapshot/api mode, not from an `--itl-json` export. (Charts
   *required* to trigger unlocks aren't exposed by the API or export.)
+- `Tech: <name>` (with `--tech-sections`) - one section per reliable tech
+  (stamina/brackets/footswitch/crossover/XMOD), each listing RP-gaining charts
+  whose dominant reliable tech is that one, spice-ordered. Sections run **weakest
+  tech first**, and each header shows your grade and percentile for that tech
+  (e.g. `---Tech: footswitch (you: E, p16)`), so the charts you most need to
+  practice surface at the top. Uses the same per-player tech profile as
+  `tech_plot.py` and the same percentile cohort.
 
 No third-party dependencies. Standard-library Python 3 only (the API mode uses
 `urllib`).

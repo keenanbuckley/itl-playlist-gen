@@ -177,6 +177,48 @@ def build_target_overlay(itlData, charts, lam=DEFAULT_LAMBDA):
     return overlay
 
 
+def section_data(data, charts, feat_by_hash, population, lam=DEFAULT_LAMBDA):
+    """Per-reliable-tech playlist grouping for one player.
+
+    Returns a list (weakest tech first) of {key, label, percentile, grade,
+    hashes}, where hashes is the set of charts whose dominant reliable tech (the
+    z-score argmax over the displayed axes, and above the mean) is that tech.
+    Percentile/grade come from the same profile tech_plot shows. None if the
+    player has too few scored charts to fit a profile.
+    """
+    pairs = [(s.spice, s.quality, h) for h, s in data.hashes.items()
+             if s.quality is not None and s.spice is not None and h in feat_by_hash]
+    if len(pairs) < 20:
+        return None
+    _fit, gamma, se, _n = player_profile(pairs, feat_by_hash, lam)
+    sn = snr(gamma, se)
+    idx = {f: FEATURES.index(f) + 1 for f, _ in DISPLAY}
+
+    buckets = {f: set() for f, _ in DISPLAY}
+    for h, vec in feat_by_hash.items():
+        best, best_z = None, 0.0
+        for f, _ in DISPLAY:
+            if vec[idx[f]] > best_z:
+                best, best_z = f, vec[idx[f]]
+        if best is not None:
+            buckets[best].add(h)
+
+    out = []
+    for f, label in DISPLAY:
+        pct = percentile(sn[f], population[f]) if population and f in population else None
+        out.append({'key': f, 'label': label, 'percentile': pct, 'snr': sn[f],
+                    'grade': grade(pct) if pct is not None else '?', 'hashes': buckets[f]})
+    out.sort(key=lambda d: d['percentile'] if d['percentile'] is not None else d['snr'])
+    return out
+
+
+def population_for(snapshot, feat_by_hash, lam=DEFAULT_LAMBDA):
+    """The percentile cohort: rebuilt from the snapshot, or the bundled API one."""
+    if snapshot is not None:
+        return build_population(snapshot, feat_by_hash, lam)
+    return load_bundled_population()[0]
+
+
 def ex_impact(gamma_f, fit, spice_ref, z_load):
     """EX-point swing on a 'heavy' chart of this tech at the player's typical spice."""
     qf = fit(spice_ref)

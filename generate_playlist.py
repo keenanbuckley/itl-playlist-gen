@@ -62,7 +62,8 @@ def resolve_min_ex(spec, scores):
     return float(s), f'min-EX:       {float(s):.1f}%'
 
 
-def build_playlist_lines(data, min_ex=None, include_practice=False, practice_passes=3, practice_ex=85.0):
+def build_playlist_lines(data, min_ex=None, include_practice=False, practice_passes=3,
+                         practice_ex=85.0, tech_sections=None):
     def ex_ok(song):
         # Charts you've already passed always stay; min_ex only gates new charts
         # the fit predicts you'd score below the cutoff.
@@ -197,6 +198,23 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
         lines.append(f'---Unmastered unlocks {suffix}')
         lines += [s.path for s in unmastered if s.is_unlock]
 
+    # Per-tech sections (weakest tech first): charts whose dominant reliable tech
+    # is this one, with RP to gain and predicted EX past the floor. Header shows
+    # your grade/percentile for that tech.
+    if tech_sections:
+        for sec in tech_sections:
+            songs = sorted(
+                (data.hashes[h] for h in sec['hashes']
+                 if h in data.hashes and data.hashes[h].potentialRP > 0 and ex_ok(data.hashes[h])),
+                key=lambda s: (s.spice is None, s.spice),
+            )
+            if not songs:
+                continue
+            pct = sec['percentile']
+            tag = f" (you: {sec['grade']}, p{pct:.0f})" if pct is not None else ''
+            lines.append(f"---Tech: {sec['label']}{tag}{ex_note}")
+            lines += [s.path for s in songs]
+
     return lines
 
 
@@ -221,6 +239,7 @@ def main(argv=None):
     parser.add_argument('--spice-iqr', type=float, metavar='K', help='reject spice outliers from the horizon fit beyond Q1-K*IQR / Q3+K*IQR of your passed charts (e.g. 4.0; off by default)')
     parser.add_argument('--tech-target', action='store_true', help='nudge target EX by your per-tech strengths/weaknesses (ridge on tech features beyond spice; off by default)')
     parser.add_argument('--tech-cap', type=float, default=5.0, metavar='EX', help='--tech-target: max EX a chart\'s target can move from the spice-only value (default: 5)')
+    parser.add_argument('--tech-sections', action='store_true', help='add a playlist section per reliable tech (charts heavy in it, weakest tech first, header shows your grade)')
     parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')
     parser.add_argument('--practice-ex', type=float, default=85.0, help='"Unmastered" section: Ex%% at which a chart counts as mastered (default: 85)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - <username>.txt)')
@@ -230,7 +249,7 @@ def main(argv=None):
         parser.error('a username is required (or pass --itl-json)')
 
     try:
-        scooby, charts, unlock_folders, _snapshot, _mode, src_lines = sources.resolve_catalog(
+        scooby, charts, unlock_folders, snapshot, _mode, src_lines = sources.resolve_catalog(
             args.mode, snapshot_dir=args.snapshot_dir, catalog=args.catalog,
             api_base=args.api_base, itl_base=args.itl_base,
             snapshot_path=args.snapshot, charts_path=args.charts, refresh=args.refresh,
@@ -282,6 +301,19 @@ def main(argv=None):
             scooby.recompute_targets(data, overlay=overlay, ex_cap=args.tech_cap)
             print(f'  tech target:     on (per-chart EX capped at +-{args.tech_cap:g})')
 
+    tech_sections = None
+    if args.tech_sections:
+        mean, std, _hi = tech.feature_stats(charts)
+        feat_by_hash = tech.feature_vectors(charts, mean, std)
+        population = tech.population_for(snapshot, feat_by_hash)
+        tech_sections = tech.section_data(data, charts, feat_by_hash, population)
+        if tech_sections is None:
+            print('  tech sections:   skipped (too few scored charts to fit a profile)')
+        else:
+            graded = sum(1 for s in tech_sections if s['percentile'] is not None)
+            print(f'  tech sections:   on ({graded}/{len(tech_sections)} graded'
+                  f'{"" if population else "; no cohort, ungraded"})')
+
     min_ex, min_ex_msg = resolve_min_ex(args.min_ex, scores)
     if min_ex_msg:
         print('\n' + min_ex_msg)
@@ -290,6 +322,7 @@ def main(argv=None):
         data, min_ex=min_ex,
         include_practice=(args.itl_json is None),    # export has no pass count
         practice_passes=args.practice_passes, practice_ex=args.practice_ex,
+        tech_sections=tech_sections,
     )
 
     output = args.output or os.path.join(
