@@ -82,9 +82,12 @@ def main(argv=None):
     lines += [song.path for _, song in by_divergence[:n]]
 
     # Tech sections: each chart's dominant tech (per-tech levels normalized by
-    # their catalog max, since the raw scales differ a lot).
+    # their catalog max, since the raw scales differ a lot). Stamina and XMOD
+    # (no-CMOD reading) get their own additive sections below instead -- they cut
+    # across the others (a stamina or reading chart is usually also footswitch-
+    # or crossover-heavy), so a single dominant bucket would hide most of them.
     TECHS = ['crossoverLevel', 'bracketLevel', 'footswitchLevel', 'jackLevel',
-             'sideswitchLevel', 'doublestepLevel', 'staminaLevel']
+             'sideswitchLevel', 'doublestepLevel']
     chart_by_hash = {c['hash']: c for c in charts.values()}
     tech_max = {t: max((chart_by_hash[s.hsh].get(t) or 0 for _, s in spiced), default=0) for t in TECHS}
     tech_groups = {t: [] for t in TECHS}
@@ -101,6 +104,20 @@ def main(argv=None):
         if group:
             lines.append(f'---Tech: {t[:-len("Level")].capitalize()}')
             lines += [song.path for _, song in group]
+
+    # Stamina and XMOD: additive (a chart can also be in a dominant tech section
+    # above). Stamina = at least a quarter of the catalog's peak stamina; XMOD =
+    # charts played without a CMOD (reading).
+    stam_max = max((chart_by_hash.get(s.hsh, {}).get('staminaLevel') or 0 for _, s in spiced), default=0)
+    stamina = [(sp, so) for sp, so in spiced
+               if (chart_by_hash.get(so.hsh, {}).get('staminaLevel') or 0) >= 0.25 * stam_max]
+    if stamina:
+        lines.append('---Tech: Stamina')
+        lines += [so.path for _, so in sorted(stamina, key=lambda x: x[0])]
+    xmod = [(sp, so) for sp, so in spiced if chart_by_hash.get(so.hsh, {}).get('isNoCmod')]
+    if xmod:
+        lines.append('---Tech: XMOD (no CMOD)')
+        lines += [so.path for _, so in sorted(xmod, key=lambda x: x[0])]
 
     output = args.output or os.path.join(os.path.dirname(__file__), 'playlists', 'ITL - spice order.txt')
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
