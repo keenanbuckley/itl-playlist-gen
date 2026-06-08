@@ -164,6 +164,40 @@ overfits on sparse data). Cross-validation across ~400 players found `adaptive`
 predicts held-out EX best overall; `--fit horizon` forces the plain horizon fit,
 matching official scobility. (See `cv_eval.py` for the comparison harness.)
 
+### Tech profile (`tech_plot.py`)
+
+Renders how a player over/under-performs on charts heavy in a given tech, beyond
+what spice alone predicts. It regresses your per-chart score quality (minus your
+spice fit) on z-scored chart tech features, then shows the reliable axes (stamina,
+brackets, footswitch, crossover, XMOD) two ways: an **EX%-impact** bar chart (how
+many EX points a chart heavy in that tech is worth to you, with error bars) and a
+**percentile radar** vs the field (50 = average), each axis labelled with a letter
+grade (C = average, S/A/B above, D/E/F below). Same source/score options as
+`generate_playlist.py`.
+
+```bash
+python tech_plot.py "HFocus77"
+python tech_plot.py "HFocus77" --mode api
+```
+
+Writes `plots/ITL - tech bars - <username>.svg` and `... tech radar - <username>.svg`
+(plus `.png` if a renderer is present, like `spice_plot.py`). A profile needs
+enough scored charts: it warns under 60 and refuses under 20.
+
+The radar percentiles are placed against a **population cohort** of other players'
+profiles. In snapshot mode the cohort is rebuilt from the snapshot (its spice and
+scores match yours). In api mode it uses the bundled
+`data/ITL2026/tech_population.json` - an API-derived cohort of ~970 players,
+stamped with the `spice_calc_time` it was built against; `tech_plot.py` warns if
+that stamp has drifted from the live spice. Rebuild it with `build_tech_population.py`
+when spice recomputes (it scrapes ~400 chart leaderboards from the ITL API, so run
+it deliberately):
+
+```bash
+python build_tech_population.py            # -> data/ITL2026/tech_population.json
+python build_tech_population.py --sleep 1.0   # gentler on the server
+```
+
 ### Sections
 
 `generate_playlist.py` emits these `---` sections (a chart can appear in several):
@@ -206,8 +240,11 @@ each chart's on-disk group from `unlock_folders.txt`.
 | `scobility.py` | spice loader (snapshot/API/raw), player lookup, horizon fit, RP targets |
 | `spice_playlist.py` | player-independent playlist of every chart ordered by spice |
 | `spice_plot.py` | SVG (+ PNG) spice-vs-score-quality scatter with the fit |
+| `tech_plot.py` | SVG (+ PNG) per-player tech profile: EX%-impact bars + percentile radar |
+| `tech.py` | tech-feature ridge fit, EX%-impact, percentile cohort math |
+| `build_tech_population.py` | rebuild the bundled radar cohort from the live API |
 | `cv_eval.py` | cross-validate spice->EX fit models per player (analysis) |
 | `groovestats.py` | live GrooveStats score scrape + name suggestions |
 | `fetch_catalog.py` | scrape charts.json + derive unlock_folders.txt from the ITL API |
 | `itldata.py` | ITL scoring math; per-player chart model |
-| `data/ITL2026/` | api-mode cache: `spice.json`, `charts.json`, `unlock_folders.txt`, `entrant_index.json` |
+| `data/ITL2026/` | bundled catalog (`charts.json`, `unlock_folders.txt`, `tech_population.json`) + ignored api caches (`spice.json`, `entrant_index.json`) |

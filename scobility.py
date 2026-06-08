@@ -178,12 +178,19 @@ class Scobility:
         return cls(spice, snapshot=snap)
 
     @staticmethod
-    def fetch_api_spice_raw(catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=60):
-        """{hash: raw spice} from the scobility API (cacheable as-is)."""
+    def fetch_api_chart_all(catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=60):
+        """({hash: raw spice}, latest spice_calc_time) from the scobility API."""
         url = f'{base_url}/catalog/{catalog}/chart/all'
         with urllib.request.urlopen(url, timeout=timeout) as r:
             data = json.load(r).get('data', {})
-        return {h: e['spice'] for h, e in data.items() if e.get('spice') is not None}
+        raw = {h: e['spice'] for h, e in data.items() if e.get('spice') is not None}
+        times = [e['spice_calc_time'] for e in data.values() if e.get('spice_calc_time')]
+        return raw, (max(times) if times else None)
+
+    @staticmethod
+    def fetch_api_spice_raw(catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=60):
+        """{hash: raw spice} from the scobility API (cacheable as-is)."""
+        return Scobility.fetch_api_chart_all(catalog, base_url, timeout)[0]
 
     @classmethod
     def from_raw_spice(cls, raw):

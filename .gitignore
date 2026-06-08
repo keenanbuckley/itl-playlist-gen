@@ -7,7 +7,10 @@ plots/*.svg
 plots/*.png
 *.snapshot.json
 
-# api-mode caches that change as scobility/entrants update (charts.json and
-# unlock_folders.txt stay tracked as the stable bundled catalog).
+# Cheap, auto-refreshed api-mode caches: re-pulled from the API on each run, so
+# a committed copy would just go stale. (charts.json, unlock_folders.txt, and
+# tech_population.json stay tracked as bundled artifacts -- the first two are the
+# static catalog; tech_population.json is ~400 live requests to rebuild, so it
+# ships built and stamped with its spice basis instead of refreshing per run.)
 data/ITL2026/spice.json
 data/ITL2026/entrant_index.json
