@@ -24,6 +24,7 @@ from scobility import Scobility, fetch_player_index
 REPO = os.path.dirname(__file__)
 DATA_DIR = os.path.join(REPO, 'data', 'ITL2026')
 SPICE_CACHE = os.path.join(DATA_DIR, 'spice.json')
+CATALOG_CACHE = os.path.join(DATA_DIR, 'catalog.json')
 CHARTS_CACHE = os.path.join(DATA_DIR, 'charts.json')
 UNLOCK_CACHE = os.path.join(DATA_DIR, 'unlock_folders.txt')
 INDEX_CACHE = os.path.join(DATA_DIR, 'entrant_index.json')
@@ -174,7 +175,22 @@ def _resolve_api(catalog, api_base, itl_base, refresh, sleep, prefetched_raw=Non
         raw = Scobility.fetch_api_spice_raw(catalog_api, api_base)
         _write_json(SPICE_CACHE, raw)
         spice_src = f'API -> cached ({SPICE_CACHE})'
-    scooby = Scobility.from_raw_spice(raw)
+
+    # Catalog metadata (perfect_offset for the score-quality math). Cached like
+    # spice so api mode can still run entirely from cache; falls back to the ITG
+    # default if the catalog row is unreachable.
+    if os.path.isfile(CATALOG_CACHE) and not refresh:
+        with open(CATALOG_CACHE, encoding='utf-8') as f:
+            meta = json.load(f)
+    else:
+        try:
+            meta = Scobility.fetch_catalog_meta(catalog_api, api_base)
+            _write_json(CATALOG_CACHE, meta)
+        except Exception as e:
+            print(f'(catalog metadata unavailable, using default perfect_offset: {e})')
+            meta = {}
+    offset = Scobility.offset_from_catalog_meta(meta)
+    scooby = Scobility.from_raw_spice(raw, offset)
 
     # Catalog: scraped from the ITL per-chart endpoint only on a cache miss --
     # the chart list is static for the event, so --refresh does NOT re-scrape it
@@ -203,6 +219,7 @@ def _resolve_api(catalog, api_base, itl_base, refresh, sleep, prefetched_raw=Non
     lines = [
         'Mode:         api (cached under data/ITL2026)',
         f'Spice:        {spice_src}',
+        f'Offset:       perfect_offset {offset:.3f} ({"catalog" if meta else "default"})',
         f'Charts:       {charts_src}',
         f'Unlocks:      derived from unlockId ({len(unlock)} folders, cached)',
     ]

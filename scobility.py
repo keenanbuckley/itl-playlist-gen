@@ -26,9 +26,9 @@ DEFAULT_API_BASE = 'https://scobility.azurewebsites.net'
 PERFECT_OFFSET = 1.003
 
 
-def _target_ex_from_quality(spice, qf):
+def _target_ex_from_quality(spice, qf, perfect_offset=PERFECT_OFFSET):
     """Invert the score-quality fit to a target EX (clamped to 0..100, 2dp)."""
-    ex = 100.0 * (PERFECT_OFFSET - pow(2, spice - qf))
+    ex = 100.0 * (perfect_offset - pow(2, spice - qf))
     if ex > 100:
         return 100
     if ex < 0:
@@ -168,10 +168,16 @@ def spiceHorizonFit(a, b):
 
 
 class Scobility:
-    def __init__(self, spice, snapshot=None):
-        """spice: dict of chart hash -> log2(spice). snapshot enables find_player."""
+    def __init__(self, spice, snapshot=None, perfect_offset=PERFECT_OFFSET):
+        """spice: dict of chart hash -> log2(spice). snapshot enables find_player.
+
+        perfect_offset is the additive constant in the score-quality log (1.003
+        for ITG EX). The scobility API stores it per catalog as a diff-from-
+        perfect offset (0.003 for ITL); the internal value is that plus 1.0.
+        """
         self.spice = spice
         self.snapshot = snapshot
+        self.perfect_offset = perfect_offset
         self._song_by_sid = {s['s_id']: s for s in snapshot['songs']} if snapshot else {}
         self.playerData = {}
 
@@ -202,14 +208,29 @@ class Scobility:
         """{hash: raw spice} from the scobility API (cacheable as-is)."""
         return Scobility.fetch_api_chart_all(catalog, base_url, timeout)[0]
 
+    @staticmethod
+    def fetch_catalog_meta(catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=30):
+        """The catalog row (perfect_offset, perfect_score, ...) from the API."""
+        url = f'{base_url}/catalog/{catalog}'
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return json.load(r).get('data', {})
+
+    @staticmethod
+    def offset_from_catalog_meta(meta):
+        """API diff-from-perfect offset -> the internal additive offset, or default."""
+        api_offset = (meta or {}).get('perfect_offset')
+        return api_offset + 1.0 if api_offset is not None else PERFECT_OFFSET
+
     @classmethod
-    def from_raw_spice(cls, raw):
+    def from_raw_spice(cls, raw, perfect_offset=PERFECT_OFFSET):
         """Build from a {hash: raw spice} dict (snapshot/API/cache agnostic)."""
-        return cls({h: math.log2(s) for h, s in raw.items() if s and s > 0})
+        return cls({h: math.log2(s) for h, s in raw.items() if s and s > 0},
+                   perfect_offset=perfect_offset)
 
     @classmethod
     def from_api(cls, catalog='ITL2026', base_url=DEFAULT_API_BASE, timeout=60):
-        return cls.from_raw_spice(cls.fetch_api_spice_raw(catalog, base_url, timeout))
+        offset = cls.offset_from_catalog_meta(cls.fetch_catalog_meta(catalog, base_url, timeout))
+        return cls.from_raw_spice(cls.fetch_api_spice_raw(catalog, base_url, timeout), offset)
 
     def player_names(self):
         return sorted(p['name'] for p in self.snapshot['players'])
@@ -247,7 +268,7 @@ class Scobility:
             if hsh in self.spice:
                 song.spice = self.spice[hsh]
                 if song.clearType > 0:
-                    song.quality = song.spice - math.log2(PERFECT_OFFSET - song.ex * 0.01)
+                    song.quality = song.spice - math.log2(self.perfect_offset - song.ex * 0.01)
 
         # Fit on played charts only. (The original sorted every chart by spice,
         # which assumes the input only holds played charts.)
@@ -323,9 +344,9 @@ class Scobility:
                 qualityFit = itlData.hotSlope * (song.spice - itlData.horizonSpice) + itlData.horizonQuality
             song.qualityFit = qualityFit
 
-            targetEX = _target_ex_from_quality(song.spice, qualityFit)
+            targetEX = _target_ex_from_quality(song.spice, qualityFit, self.perfect_offset)
             if overlay is not None:
-                adj = _target_ex_from_quality(song.spice, qualityFit + overlay(song))
+                adj = _target_ex_from_quality(song.spice, qualityFit + overlay(song), self.perfect_offset)
                 if ex_cap is not None:
                     adj = min(targetEX + ex_cap, max(targetEX - ex_cap, adj))
                 targetEX = adj

@@ -54,7 +54,10 @@ def value_to_ex(value):
     return (1.0 - value) * 100.0
 
 
-# How many charts per block rating contribute to the EX-points trapezoid.
+# How many charts per block rating contribute to the EX-points trapezoid. This is
+# the ITL2026 singles "EXscalator" slot map (a trapezoid: flat 5 across 7-11, then
+# a descent); each ITL year and style carries its own map, so this must be updated
+# for a different tournament. The map is tournament-rules, not in the scobility API.
 EP_COUNTS = {
     7: 5,
     8: 5,

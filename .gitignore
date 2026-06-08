@@ -13,4 +13,5 @@ plots/*.png
 # static catalog; tech_population.json is ~400 live requests to rebuild, so it
 # ships built and stamped with its spice basis instead of refreshing per run.)
 data/ITL2026/spice.json
+data/ITL2026/catalog.json
 data/ITL2026/entrant_index.json

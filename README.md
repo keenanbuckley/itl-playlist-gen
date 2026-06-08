@@ -261,4 +261,4 @@ each chart's on-disk group from `unlock_folders.txt`.
 | `groovestats.py` | live GrooveStats score scrape + name suggestions |
 | `fetch_catalog.py` | scrape charts.json + derive unlock_folders.txt from the ITL API |
 | `itldata.py` | ITL scoring math; per-player chart model |
-| `data/ITL2026/` | bundled catalog (`charts.json`, `unlock_folders.txt`, `tech_population.json`) + ignored api caches (`spice.json`, `entrant_index.json`) |
+| `data/ITL2026/` | bundled catalog (`charts.json`, `unlock_folders.txt`, `tech_population.json`) + ignored api caches (`spice.json`, `catalog.json`, `entrant_index.json`) |
