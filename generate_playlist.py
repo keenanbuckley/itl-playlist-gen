@@ -63,7 +63,8 @@ def resolve_min_ex(spec, scores):
 
 
 def build_playlist_lines(data, min_ex=None, include_practice=False, practice_passes=3,
-                         practice_ex=85.0, tech_sections=None):
+                         practice_ex=85.0, tech_sections=None, frontier_size=12,
+                         challenge_band=0.45):
     def ex_ok(song):
         # Charts you've already passed always stay; min_ex only gates new charts
         # the fit predicts you'd score below the cutoff.
@@ -112,6 +113,30 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
     ex_note = '' if min_ex is None else f' (predicted EX >= {min_ex:.1f}%)'
     lines = []
 
+    # Frontier loop at the top, each capped to a sitting: play one, refresh, play the
+    # other. Challenge: above-horizon charts below your horizon quality, played broadly
+    # to de-bias the hot slope. Horizon: in-reach charts under target, re-scored for RP.
+    H = getattr(data, 'horizonSpice', None)
+    HQ = getattr(data, 'horizonQuality', None)
+    if H is not None and HQ is not None:
+        challenge = sorted(
+            (s for s in data.hashes.values()
+             if s.spice is not None and H < s.spice <= H + challenge_band and (s.quality is None or s.quality < HQ)),
+            key=lambda s: s.spice,
+        )[:frontier_size]
+        if challenge:
+            lines.append('---Challenge (hot spice charts < horizon quality)')
+            lines += [s.path for s in challenge]
+
+        horizon = sorted(
+            (s for s in data.hashes.values()
+             if s.played and s.spice is not None and s.spice <= H + 0.02 and s.targetEX is not None and s.ex < s.targetEX - 1 and s.potentialRP > 0),
+            key=lambda s: s.potentialRP, reverse=True,
+        )[:frontier_size]
+        if horizon:
+            lines.append('---Horizon +RP')
+            lines += [s.path for s in horizon]
+
     lines.append(f"---All +RP{ex_note}")
     for target in sorted(allTargets, reverse=True, key=lambda x: x.potentialRP):
         lines.append(target.path)
@@ -150,18 +175,6 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
     if under:
         lines.append("---Underperformed (vs your fit)")
         lines += [s.path for s in under]
-
-    # Charts at and just above your skill horizon -- level-up targets.
-    hz = getattr(data, 'horizonSpice', None)
-    if hz is not None:
-        lo, hi = hz, hz + 0.75
-        ceiling_charts = sorted(
-            (s for s in data.hashes.values() if s.spice is not None and lo <= s.spice <= hi),
-            key=lambda s: s.spice,
-        )
-        if ceiling_charts:
-            lines.append(f'---At your ceiling ({lo:.2f}-{hi:.2f} spice)')
-            lines += [s.path for s in ceiling_charts]
 
     for rating in sorted(targetsByRating.keys()):
         minRP = min(x.potentialRP for x in targetsByRating[rating])
@@ -240,6 +253,9 @@ def main(argv=None):
     parser.add_argument('--tech-target', action='store_true', help='nudge target EX by your per-tech strengths/weaknesses (ridge on tech features beyond spice; off by default)')
     parser.add_argument('--tech-cap', type=float, default=5.0, metavar='EX', help='--tech-target: max EX a chart\'s target can move from the spice-only value (default: 5)')
     parser.add_argument('--tech-sections', action='store_true', help='add a playlist section per reliable tech (charts heavy in it, weakest tech first, header shows your grade)')
+    parser.add_argument('--frontier-size', type=int, default=12, help='Challenge/Horizon: max charts per section, one sitting (default: 12)')
+    parser.add_argument('--challenge-band', type=float, default=0.45, help='Challenge: spice reach above the horizon (default: 0.45)')
+    parser.add_argument('--clamp-hot', action='store_true', help='cap the EX prediction for unpassed charts above the horizon at your horizon quality (counters an optimistic positive hot slope)')
     parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')
     parser.add_argument('--practice-ex', type=float, default=85.0, help='"Unmastered" section: Ex%% at which a chart counts as mastered (default: 85)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - <username>.txt)')
@@ -273,7 +289,7 @@ def main(argv=None):
     data = ITLData(charts, unlock_folders, scores)
     try:
         scooby.processPlayer(player_name, data, spice_iqr_mult=args.spice_iqr,
-                             fit=args.fit, adaptive_n=args.adaptive_n)
+                             fit=args.fit, adaptive_n=args.adaptive_n, clamp_hot=args.clamp_hot)
     except ValueError as e:
         print(f'\nCould not compute targets: {e}', file=sys.stderr)
         return 1
@@ -289,6 +305,8 @@ def main(argv=None):
         print(f'  spice horizon:   {data.horizonSpice:7.3f}  (quality {data.horizonQuality:.3f})')
         print(f'  mild sauce:      {data.mildSlope:7.3f}  (slope below the horizon)')
         print(f'  hot sauce:       {data.hotSlope:7.3f}  (slope above the horizon)')
+        if data.hotSlope > 0:
+            print('  (positive hot slope: above-horizon charts undersampled, targets optimistic)')
     else:
         print(f'  slope:           {data.mildSlope:7.3f}  (quality per spice, shrunk toward flat)')
     print(f'  fit residual:    {data.residual:7.3f}')
@@ -298,7 +316,7 @@ def main(argv=None):
         if overlay is None:
             print('  tech target:     skipped (too few played charts to fit)')
         else:
-            scooby.recompute_targets(data, overlay=overlay, ex_cap=args.tech_cap)
+            scooby.recompute_targets(data, overlay=overlay, ex_cap=args.tech_cap, clamp_hot=args.clamp_hot)
             print(f'  tech target:     on (per-chart EX capped at +-{args.tech_cap:g})')
 
     tech_sections = None
@@ -323,6 +341,7 @@ def main(argv=None):
         include_practice=(args.itl_json is None),    # export has no pass count
         practice_passes=args.practice_passes, practice_ex=args.practice_ex,
         tech_sections=tech_sections,
+        frontier_size=args.frontier_size, challenge_band=args.challenge_band,
     )
 
     output = args.output or os.path.join(
