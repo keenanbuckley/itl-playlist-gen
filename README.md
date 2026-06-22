@@ -177,6 +177,20 @@ unplayed charts can carry tech the fit never saw. The gain is real but small in
 cross-validation (~0.04-0.06 EX MAE, never worse; see `cv_tech.py`), so it's
 opt-in. It's the same per-player tech model `tech_plot.py` visualizes.
 
+`--clamp-hot` (off by default) caps the predicted EX of *unpassed* charts above
+your spice horizon at your horizon quality. The hot slope is fit only to the few
+hard charts you've passed, so when it's positive it over-predicts the ones you
+haven't; clamping flattens that. Passed charts keep their fit, and the run flags
+a positive hot slope.
+
+`--block-cap` (default `auto`) keeps recommendations to charts you can pass.
+Spice rates *scoring* difficulty, not the stamina that decides a pass, so a
+low-spice high-block chart (a [13] at your [10]-level spice) can otherwise top
+`Efficient RP` as a clear you can't make. `auto` caps unplayed charts at your
+highest block with 3+ passes, plus `--block-cap-over` (default 1); `off` disables
+it, or pass a number. Gates `Challenge`, `Efficient RP`, and `All +RP`; passed
+charts always stay.
+
 ### Tech profile (`tech_plot.py`)
 
 Renders how a player over/under-performs on charts heavy in a given tech, beyond
@@ -213,17 +227,27 @@ python build_tech_population.py --sleep 1.0   # gentler on the server
 
 ### Sections
 
-`generate_playlist.py` emits these `---` sections (a chart can appear in several):
+`generate_playlist.py` emits these `---` sections, ordered **most-specific to
+comprehensive** (a chart can appear in several). ITGmania drops you into the
+first section holding your selected chart, so curated sections lead and broad
+catch-alls trail; a catch-all up top would capture the cursor for nearly every
+chart.
 
-- `All +RP` / per-block `[NN] +RP` - everything with RP to gain.
-- `Passed +RP`, `Passed +SP`, `Passed +EP` - already-passed charts with room to
-  gain, overall and split by points pool.
-- `Efficient RP` - most RP per unit of (linear) spice: the low-hanging fruit.
+- `Challenge` - unplayed or not-yet-mastered charts just above your horizon,
+  nearest first. Play them broadly and up to your horizon quality to extend your
+  reach and flatten an optimistic hot slope. `--challenge-band` (0.45) sets the
+  reach; `--frontier-size` (12) caps the count.
+- `Horizon +RP` - in-reach charts scored below target, by RP: re-score to bank RP
+  and lift timing power. Also capped by `--frontier-size`.
+- `Never passed` - new charts you could clear, easiest spice first.
 - `Underperformed (vs your fit)` - played charts you scored below what your skill
   curve predicts: your weak spots, biggest gap first.
-- `At your ceiling` - charts at and just above your fitted spice horizon.
-- `Best score from <month>` / `Never passed` - passed charts by month, and new
-  charts (spice order).
+- `Passed +EP`, `Passed +SP`, `Passed +RP` - already-passed charts with room to
+  gain, split by points pool then overall.
+- per-block `[NN] +RP` - everything with RP to gain at that block.
+- `Best score from <month>` - passed charts grouped by month.
+- `Efficient RP` - most RP per unit of (linear) spice: the low-hanging fruit.
+- `All +RP` - everything with RP to gain (the comprehensive fallback).
 - `Unmastered` / `Unmastered unlocks` - passed fewer than `--practice-passes`
   times (3) AND under `--practice-ex` (85), including never-played; and the same
   restricted to unlock-pack charts. These need a pass count, so they're only
