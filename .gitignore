@@ -3,6 +3,7 @@ __pycache__/
 
 # Personal data drops and generated output.
 playlists/*.txt
+playlists/*.csv
 plots/*.svg
 plots/*.png
 *.snapshot.json

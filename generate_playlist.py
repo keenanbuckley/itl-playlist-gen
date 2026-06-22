@@ -19,6 +19,9 @@ Two modes (see sources.py):
 """
 
 import argparse
+import csv
+import datetime
+import hashlib
 import math
 import os
 import sys
@@ -92,6 +95,62 @@ def resolve_block_cap(data, spec, over):
     cap = base + over
     return cap, (f'block cap:    [{cap:02}] (auto: top block with >={CAP_MIN_PASSES} '
                  f'passes [{base:02}] +{over})')
+
+
+TREND_FIELDS = ['date_asof', 'timing_power', 'horizon_spice', 'horizon_quality',
+                'mild_slope', 'hot_slope', 'scobility', 'n_played', 'fit_used',
+                'score_hash', 'logged_at']
+
+
+def _score_hash(scores):
+    items = sorted((h, round(v['value'], 6)) for h, v in scores.items())
+    return hashlib.sha1(repr(items).encode()).hexdigest()[:12]
+
+
+def log_skill_trend(path, data, scores):
+    """Append a skill-metric row when scores changed, keyed on latest-score date
+    (re-runs on unchanged data add nothing). Returns a one-line delta summary."""
+    played = [s for s in data.hashes.values() if s.played and s.quality is not None]
+    scob = sum(s.quality for s in played) / len(played) if played else 0.0
+    asof = max((s.date[:10] for s in played if s.date), default='')
+    row = {
+        'date_asof': asof,
+        'timing_power': f'{data.timingPower:.4f}',
+        'horizon_spice': f'{data.horizonSpice:.4f}',
+        'horizon_quality': f'{data.horizonQuality:.4f}',
+        'mild_slope': f'{data.mildSlope:.4f}',
+        'hot_slope': f'{data.hotSlope:.4f}',
+        'scobility': f'{scob:.4f}',
+        'n_played': len(played),
+        'fit_used': data.fit_used,
+        'score_hash': _score_hash(scores),
+        'logged_at': datetime.datetime.now().isoformat(timespec='seconds'),
+    }
+    rows = []
+    if os.path.isfile(path):
+        with open(path, newline='', encoding='utf-8') as f:
+            rows = list(csv.DictReader(f))
+    last = rows[-1] if rows else None
+    if last is not None and last.get('score_hash') == row['score_hash']:
+        return f'Skill trend:  no new scores since {last["date_asof"]} ({len(rows)} logged)'
+
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    new_file = not os.path.isfile(path)
+    with open(path, 'a', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=TREND_FIELDS)
+        if new_file:
+            w.writeheader()
+        w.writerow(row)
+
+    if last is None:
+        return f'Skill trend:  first datapoint logged ({asof})'
+
+    def delta(k):
+        return float(row[k]) - float(last[k])
+    hot = delta('hot_slope')
+    vee = ' (de-V-ing)' if hot < 0 and float(last['hot_slope']) > 0 else ''
+    return (f'Skill trend:  since {last["date_asof"]} -> timing {delta("timing_power"):+.3f}, '
+            f'horizon {delta("horizon_spice"):+.3f}, hot {hot:+.3f}{vee}')
 
 
 def build_playlist_lines(data, min_ex=None, include_practice=False, practice_passes=3,
@@ -301,6 +360,7 @@ def main(argv=None):
     parser.add_argument('--clamp-hot', action=argparse.BooleanOptionalAction, default=True, help='cap the EX prediction for unpassed charts above the horizon at your horizon quality, countering an optimistic positive hot slope (default: on; --no-clamp-hot to disable)')
     parser.add_argument('--block-cap', default='auto', metavar='auto|off|N', help="cap recommended UNPLAYED charts (Challenge, Efficient RP, All +RP) at a block rating: 'auto' (top block with >=3 passes + over), 'off', or a number (default: auto)")
     parser.add_argument('--block-cap-over', type=int, default=1, help='--block-cap auto: blocks above your top reliable block to allow, the one you are breaking into (default: 1)')
+    parser.add_argument('--trend-log', default='auto', metavar='auto|off|PATH', help="log skill metrics to a CSV when your scores change, with the delta since last time: 'auto', 'off', or a path (default: auto)")
     parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')
     parser.add_argument('--practice-ex', type=float, default=85.0, help='"Unmastered" section: Ex%% at which a chart counts as mastered (default: 85)')
     parser.add_argument('-o', '--output', help='output playlist path (default: playlists/ITL - <username>.txt)')
@@ -355,6 +415,14 @@ def main(argv=None):
     else:
         print(f'  slope:           {data.mildSlope:7.3f}  (quality per spice, shrunk toward flat)')
     print(f'  fit residual:    {data.residual:7.3f}')
+
+    if str(args.trend_log).lower() not in ('off', 'none', ''):
+        if str(args.trend_log).lower() == 'auto':
+            trend_path = os.path.join(os.path.dirname(__file__), 'playlists',
+                                      f'ITL - {player_name} - skill trend.csv')
+        else:
+            trend_path = args.trend_log
+        print(log_skill_trend(trend_path, data, scores))
 
     if args.tech_target:
         overlay = tech.build_target_overlay(data, charts)

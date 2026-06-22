@@ -193,6 +193,12 @@ highest block with 3+ passes, plus `--block-cap-over` (default 1); `off` disable
 it, or pass a number. Gates `Challenge`, `Efficient RP`, and `All +RP`; passed
 charts always stay.
 
+`--trend-log` (on by default, `off` to disable) appends your skill metrics
+(timing power, horizon, slopes, scobility) to a per-player CSV when your scores
+change, and prints the delta since last time (e.g. `timing +0.05, horizon
++0.02`). A single snapshot can't show improvement; this accrues it. Watch timing
+power; the horizon vertex is noisier.
+
 ### Tech profile (`tech_plot.py`)
 
 Renders how a player over/under-performs on charts heavy in a given tech, beyond
