@@ -108,6 +108,13 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
         # Block cap gates only unplayed charts; anything you've passed stays.
         return song.played or block_cap is None or song.rating <= block_cap
 
+    def ex_ok_raw(song):
+        # Never-passed gate: uses the unclamped target so clamp_hot doesn't shrink
+        # the pass-pushing list (passing, not the clamped score, is the point).
+        if min_ex is None or song.played:
+            return True
+        return song.targetEXraw is not None and song.targetEXraw >= min_ex
+
     allTargets = []
     targetsByRating = {}
     for song in data.songs:
@@ -136,7 +143,7 @@ def build_playlist_lines(data, min_ex=None, include_practice=False, practice_pas
 
     targetsByDate = {}
     for song in data.songs:
-        if not ex_ok(song):
+        if not ex_ok_raw(song):
             continue
         ceiling = spiceEpCeilings.get(song.rating)
         ep_relevant = (
@@ -291,7 +298,7 @@ def main(argv=None):
     parser.add_argument('--tech-sections', action='store_true', help='add a playlist section per reliable tech (charts heavy in it, weakest tech first, header shows your grade)')
     parser.add_argument('--frontier-size', type=int, default=12, help='Challenge/Horizon: max charts per section, one sitting (default: 12)')
     parser.add_argument('--challenge-band', type=float, default=0.45, help='Challenge: spice reach above the horizon (default: 0.45)')
-    parser.add_argument('--clamp-hot', action='store_true', help='cap the EX prediction for unpassed charts above the horizon at your horizon quality (counters an optimistic positive hot slope)')
+    parser.add_argument('--clamp-hot', action=argparse.BooleanOptionalAction, default=True, help='cap the EX prediction for unpassed charts above the horizon at your horizon quality, countering an optimistic positive hot slope (default: on; --no-clamp-hot to disable)')
     parser.add_argument('--block-cap', default='auto', metavar='auto|off|N', help="cap recommended UNPLAYED charts (Challenge, Efficient RP, All +RP) at a block rating: 'auto' (top block with >=3 passes + over), 'off', or a number (default: auto)")
     parser.add_argument('--block-cap-over', type=int, default=1, help='--block-cap auto: blocks above your top reliable block to allow, the one you are breaking into (default: 1)')
     parser.add_argument('--practice-passes', type=int, default=3, help='"Unmastered" section: passes at which a chart counts as mastered (default: 3)')

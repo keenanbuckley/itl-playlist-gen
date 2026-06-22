@@ -101,6 +101,7 @@ class Song:
         self.quality = None
         self.qualityFit = None      # score quality the fit predicts at this spice
         self.targetEX = None        # EX the fit predicts this player would score
+        self.targetEXraw = None     # same, before clamp_hot (the Never-passed gate)
         self.potentialSP = 0
         self.potentialEP = 0
         self.potentialRP = 0

@@ -351,14 +351,19 @@ class Scobility:
             if clamp_hot and not song.played and song.spice > itlData.horizonSpice:
                 predFit = min(qualityFit, itlData.horizonQuality)
 
-            targetEX = _target_ex_from_quality(song.spice, predFit, self.perfect_offset)
-            if overlay is not None:
-                adj = _target_ex_from_quality(song.spice, predFit + overlay(song), self.perfect_offset)
-                if ex_cap is not None:
-                    adj = min(targetEX + ex_cap, max(targetEX - ex_cap, adj))
-                targetEX = adj
+            def make_target(base):
+                ex = _target_ex_from_quality(song.spice, base, self.perfect_offset)
+                if overlay is not None:
+                    adj = _target_ex_from_quality(song.spice, base + overlay(song), self.perfect_offset)
+                    if ex_cap is not None:
+                        adj = min(ex + ex_cap, max(ex - ex_cap, adj))
+                    ex = adj
+                return ex
 
+            targetEX = make_target(predFit)
             song.targetEX = targetEX
+            # Unclamped target for the Never-passed gate; equals targetEX unless clamp fired.
+            song.targetEXraw = targetEX if predFit == qualityFit else make_target(qualityFit)
 
             targetSP = math.floor(song.passingPoints + song.maxScoringPoints * EX2SP(targetEX) * 0.01)
             targetEP = 1000 if (targetEX == 100) else EX2EP(targetEX)

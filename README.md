@@ -177,11 +177,13 @@ unplayed charts can carry tech the fit never saw. The gain is real but small in
 cross-validation (~0.04-0.06 EX MAE, never worse; see `cv_tech.py`), so it's
 opt-in. It's the same per-player tech model `tech_plot.py` visualizes.
 
-`--clamp-hot` (off by default) caps the predicted EX of *unpassed* charts above
-your spice horizon at your horizon quality. The hot slope is fit only to the few
-hard charts you've passed, so when it's positive it over-predicts the ones you
-haven't; clamping flattens that. Passed charts keep their fit, and the run flags
-a positive hot slope.
+`--clamp-hot` (on by default; `--no-clamp-hot` to disable) caps the predicted EX
+of *unpassed* charts above your spice horizon at your horizon quality. The hot
+slope is fit only to the few hard charts you've passed, so when it's positive it
+over-predicts the ones you haven't; clamping flattens that. Passed charts keep
+their fit (official scobility only scores passes, so this stays faithful there),
+and the run flags a positive hot slope. `Never passed` is gated on the unclamped
+prediction, so it stays a broad pass-pushing list.
 
 `--block-cap` (default `auto`) keeps recommendations to charts you can pass.
 Spice rates *scoring* difficulty, not the stamina that decides a pass, so a
