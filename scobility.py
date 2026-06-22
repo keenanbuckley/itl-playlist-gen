@@ -259,7 +259,7 @@ class Scobility:
         return player, scores
 
     def processPlayer(self, playerKey, itlData, spice_iqr_mult=None,
-                      fit='horizon', adaptive_n=40, shrink_k=30.0):
+                      fit='horizon', adaptive_n=40, shrink_k=30.0, clamp_hot=False):
         self.playerData[playerKey] = itlData
 
         # Attach spice to every chart we know (so unplayed charts can still be
@@ -324,9 +324,9 @@ class Scobility:
             itlData.residual = coefs["residual"]
             itlData.fit_used = 'horizon'
 
-        self.recompute_targets(itlData)
+        self.recompute_targets(itlData, clamp_hot=clamp_hot)
 
-    def recompute_targets(self, itlData, overlay=None, ex_cap=None):
+    def recompute_targets(self, itlData, overlay=None, ex_cap=None, clamp_hot=False):
         """Set each chart's qualityFit/targetEX/potential* from the spice fit.
 
         `overlay`, if given, is a callable song -> extra score quality (the
@@ -344,9 +344,16 @@ class Scobility:
                 qualityFit = itlData.hotSlope * (song.spice - itlData.horizonSpice) + itlData.horizonQuality
             song.qualityFit = qualityFit
 
-            targetEX = _target_ex_from_quality(song.spice, qualityFit, self.perfect_offset)
+            # A positive hot slope is fit only to the favorable charts you passed above
+            # the horizon, so it over-predicts unpassed ones. clamp_hot caps their
+            # prediction at horizon quality; passed hot charts keep the fit.
+            predFit = qualityFit
+            if clamp_hot and not song.played and song.spice > itlData.horizonSpice:
+                predFit = min(qualityFit, itlData.horizonQuality)
+
+            targetEX = _target_ex_from_quality(song.spice, predFit, self.perfect_offset)
             if overlay is not None:
-                adj = _target_ex_from_quality(song.spice, qualityFit + overlay(song), self.perfect_offset)
+                adj = _target_ex_from_quality(song.spice, predFit + overlay(song), self.perfect_offset)
                 if ex_cap is not None:
                     adj = min(targetEX + ex_cap, max(targetEX - ex_cap, adj))
                 targetEX = adj
