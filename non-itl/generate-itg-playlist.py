@@ -1,37 +1,35 @@
 #!/usr/bin/env python3
 """Generate an ITGmania playlist from non-ITL songs filtered by length and block level.
 
-Scans Songs/ subdirectories (packs) for .ssc/.sm files, reads each chart's
-meter (block level) and the song's audio length, then writes a playlist of
-matching charts grouped by block level.
+Reads from a JSON cache built by parse_song_data.py and writes a playlist of
+matching charts grouped and sorted by a chosen metric.
+
+    # build the cache first (once, or after adding songs)
+    python parse_song_data.py
 
     # all dance-single charts between 1:30 and 3:00 at blocks 8-11
     python generate-itg-playlist.py --min-length 1:30 --max-length 3:00 --min-block 8 --max-block 11
 
-    # length as seconds, any block
-    python generate-itg-playlist.py --min-length 90 --max-length 200
+    # specific difficulty column, sorted and bucketed by block level
+    python generate-itg-playlist.py --min-block 10 --max-block 13 --difficulty Challenge --sort block
 
-    # specific difficulty column only
-    python generate-itg-playlist.py --min-block 10 --max-block 13 --difficulty Challenge
+    # sorted and bucketed by jack+jump density
+    python generate-itg-playlist.py --difficulty Challenge --sort j2j
 """
 
 import argparse
+import json
 import os
 import sys
 
-try:
-    import simfile
-except ImportError:
-    sys.exit("simfile not installed: pip install simfile")
-
-try:
-    import mutagen
-except ImportError:
-    sys.exit("mutagen not installed: pip install mutagen")
-
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_SONGS_DIR = os.path.join(SCRIPT_DIR, "Songs")
+DEFAULT_CACHE = os.path.join(SCRIPT_DIR, "song_cache.json")
+
+SORT_CHOICES = ["length", "avg_nps", "block", "j2j", "jumps", "j10j"]
+
+# Bucket sizes for each sort metric (except block which buckets by integer level).
+BUCKET_SIZE = {"length": 60, "avg_nps": 1, "j2j": 50, "jumps": 25, "j10j": 100}
 
 
 def parse_length(s):
@@ -52,75 +50,94 @@ def fmt_length(seconds):
     return f"{m}:{s:02d}"
 
 
-def get_audio_length(song_dir, music_filename):
-    """Return audio length in seconds, or None if unreadable."""
-    if not music_filename:
-        return None
-    path = os.path.join(song_dir, music_filename)
-    if not os.path.isfile(path):
-        return None
+def load_charts(cache_path, steps_type, difficulty_filter, min_block, max_block,
+                min_length, max_length):
+    """Load matching (song, chart) pairs from the cache.
+
+    Returns one entry per matching chart with keys:
+      pack, song_folder, length, avg_nps, block, j2j
+    """
     try:
-        audio = mutagen.File(path)
-        if audio and hasattr(audio, "info") and hasattr(audio.info, "length"):
-            return audio.info.length
-    except Exception:
-        pass
-    return None
+        with open(cache_path, encoding="utf-8") as f:
+            cache = json.load(f)
+    except FileNotFoundError:
+        sys.exit(
+            f"Cache not found: {cache_path}\n"
+            "Run parse_song_data.py first to build it."
+        )
 
+    results = []
+    for song in cache["songs"]:
+        length_s = song["length_s"]
 
-def scan_songs(songs_dir, steps_type, difficulty_filter, min_block, max_block,
-               min_length, max_length):
-    """Yield (pack, song_folder, block, length_s) for each matching chart."""
-    if not os.path.isdir(songs_dir):
-        sys.exit(f"Songs directory not found: {songs_dir}")
-
-    errors = []
-    for pack in sorted(os.listdir(songs_dir)):
-        pack_dir = os.path.join(songs_dir, pack)
-        if not os.path.isdir(pack_dir):
+        if min_length is not None and (length_s is None or length_s < min_length):
+            continue
+        if max_length is not None and (length_s is None or length_s > max_length):
             continue
 
-        for song_folder in sorted(os.listdir(pack_dir)):
-            song_dir = os.path.join(pack_dir, song_folder)
-            if not os.path.isdir(song_dir):
+        for chart in song["charts"]:
+            if chart["steps_type"] != steps_type:
+                continue
+            if difficulty_filter and chart["difficulty"].lower() != difficulty_filter.lower():
+                continue
+            meter = chart["meter"]
+            if min_block is not None and (meter is None or meter < min_block):
+                continue
+            if max_block is not None and (meter is None or meter > max_block):
                 continue
 
-            try:
-                sf, _ = simfile.opendir(song_dir, strict=False)
-            except Exception as e:
-                errors.append(f"  {pack}/{song_folder}: {e}")
-                continue
+            avg_nps = chart["notes"] / length_s if length_s else None
 
-            length_s = get_audio_length(song_dir, sf.get("MUSIC", ""))
+            results.append({
+                "pack": song["pack"],
+                "song_folder": song["song_folder"],
+                "length": length_s,
+                "avg_nps": avg_nps,
+                "block": meter,
+                "jumps": chart["jumps"],
+                "j2j": chart["jacks"] + 2 * chart["jumps"],
+                "j10j": chart["jacks"] + 10 * chart["jumps"],
+            })
 
-            if min_length is not None and (length_s is None or length_s < min_length):
-                continue
-            if max_length is not None and (length_s is None or length_s > max_length):
-                continue
+    return results
 
-            seen_blocks = set()
-            for chart in sf.charts:
-                if chart.stepstype != steps_type:
-                    continue
-                if difficulty_filter and chart.difficulty.lower() != difficulty_filter.lower():
-                    continue
-                try:
-                    block = int(chart.meter)
-                except (ValueError, TypeError):
-                    continue
-                if min_block is not None and block < min_block:
-                    continue
-                if max_block is not None and block > max_block:
-                    continue
-                if block in seen_blocks:
-                    continue
-                seen_blocks.add(block)
-                yield pack, song_folder, block, length_s
 
-    for msg in errors:
-        print(msg, file=sys.stderr)
-    if errors:
-        print(f"  ({len(errors)} songs skipped due to parse errors)", file=sys.stderr)
+def bucket_of(entry, sort_by):
+    """Return the bucket index for an entry, or None for unknown."""
+    val = entry[sort_by]
+    if val is None:
+        return None
+    if sort_by == "block":
+        return int(val)
+    return int(val / BUCKET_SIZE[sort_by])
+
+
+def bucket_label(bucket, sort_by, count):
+    if sort_by == "length":
+        lo = fmt_length(bucket * BUCKET_SIZE["length"])
+        hi = fmt_length((bucket + 1) * BUCKET_SIZE["length"])
+        return f"---{lo}-{hi} ({count} charts)"
+    if sort_by == "block":
+        return f"---[{bucket:02d}] ({count} charts)"
+    if sort_by == "avg_nps":
+        return f"---{bucket}-{bucket + 1} NPS ({count} charts)"
+    if sort_by == "j2j":
+        lo = bucket * BUCKET_SIZE["j2j"]
+        hi = lo + BUCKET_SIZE["j2j"]
+        return f"---j2j {lo}-{hi} ({count} charts)"
+    if sort_by == "jumps":
+        lo = bucket * BUCKET_SIZE["jumps"]
+        hi = lo + BUCKET_SIZE["jumps"]
+        return f"---{lo}-{hi} jumps ({count} charts)"
+    if sort_by == "j10j":
+        lo = bucket * BUCKET_SIZE["j10j"]
+        hi = lo + BUCKET_SIZE["j10j"]
+        return f"---j10j {lo}-{hi} ({count} charts)"
+
+
+def sort_key(entry, sort_by):
+    val = entry[sort_by]
+    return (val is None, val or 0, entry["pack"], entry["song_folder"])
 
 
 def main(argv=None):
@@ -128,8 +145,8 @@ def main(argv=None):
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--songs-dir", default=DEFAULT_SONGS_DIR,
-                        help=f"root Songs directory to scan (default: {DEFAULT_SONGS_DIR})")
+    parser.add_argument("--cache", default=DEFAULT_CACHE,
+                        help=f"song cache JSON from parse_song_data.py (default: {DEFAULT_CACHE})")
     parser.add_argument("--min-length", metavar="LEN",
                         help="minimum song length: seconds or M:SS (inclusive)")
     parser.add_argument("--max-length", metavar="LEN",
@@ -142,6 +159,13 @@ def main(argv=None):
                         help="StepMania steps type to include (default: dance-single)")
     parser.add_argument("--difficulty", metavar="DIFF",
                         help="filter to a specific difficulty column (e.g. Challenge, Hard)")
+    parser.add_argument("--sort", choices=SORT_CHOICES, default="length",
+                        help="sort and bucket order: length (default, 1-min buckets), "
+                             "avg_nps (notes/sec, 1-NPS buckets), "
+                             "block (meter level), "
+                             "jumps (jump count, buckets of 25), "
+                             "j2j (jacks + 2*jumps, buckets of 50), "
+                             "j10j (jacks + 10*jumps, buckets of 100)")
     parser.add_argument("-o", "--output",
                         help="output playlist path (default: playlists/itg-<criteria>.txt)")
     args = parser.parse_args(argv)
@@ -152,51 +176,40 @@ def main(argv=None):
     except ValueError as e:
         parser.error(str(e))
 
-    results = list(scan_songs(
-        args.songs_dir, args.steps_type, args.difficulty,
+    results = load_charts(
+        args.cache, args.steps_type, args.difficulty,
         args.min_block, args.max_block, min_length, max_length,
-    ))
+    )
 
     if not results:
         print("No charts matched the criteria.")
         return 0
 
-    # Deduplicate: one path per song (a song can match multiple blocks).
-    seen = set()
-    deduped = []
+    # Group by bucket of the sort metric; within each bucket sort by that metric.
+    by_bucket: dict[int, list] = {}
+    unknown = []
     for entry in results:
-        key = (entry[0], entry[1])
-        if key not in seen:
-            seen.add(key)
-            deduped.append(entry)
-    results = deduped
-
-    # Group by 1-minute length bucket; within each bucket sort by length then pack/song.
-    by_minute = {}
-    unknown_length = []
-    for pack, song_folder, block, length_s in results:
-        if length_s is None:
-            unknown_length.append((pack, song_folder, block, length_s))
+        b = bucket_of(entry, args.sort)
+        if b is None:
+            unknown.append(entry)
         else:
-            bucket = int(length_s / 60)
-            by_minute.setdefault(bucket, []).append((pack, song_folder, block, length_s))
+            by_bucket.setdefault(b, []).append(entry)
 
-    for bucket in by_minute:
-        by_minute[bucket].sort(key=lambda r: (r[3], r[0], r[1]))
+    for b in by_bucket:
+        by_bucket[b].sort(key=lambda e: sort_key(e, args.sort))
 
     lines = []
-    for bucket in sorted(by_minute):
-        entries = by_minute[bucket]
-        lo = fmt_length(bucket * 60)
-        hi = fmt_length((bucket + 1) * 60)
-        lines.append(f"---{lo}-{hi} ({len(entries)} songs)")
-        for pack, song_folder, block, length_s in entries:
-            lines.append(f"{pack}\\{song_folder}")
+    for b in sorted(by_bucket):
+        entries = by_bucket[b]
+        lines.append(bucket_label(b, args.sort, len(entries)))
+        for e in entries:
+            lines.append(f"{e['pack']}\\{e['song_folder']}")
 
-    if unknown_length:
-        lines.append(f"---unknown length ({len(unknown_length)} songs)")
-        for pack, song_folder, block, length_s in sorted(unknown_length, key=lambda r: (r[0], r[1])):
-            lines.append(f"{pack}\\{song_folder}")
+    if unknown:
+        unknown.sort(key=lambda e: sort_key(e, args.sort))
+        lines.append(f"---unknown {args.sort} ({len(unknown)} charts)")
+        for e in unknown:
+            lines.append(f"{e['pack']}\\{e['song_folder']}")
 
     # Build a human-readable criteria summary for the default filename.
     parts = []
@@ -205,11 +218,16 @@ def main(argv=None):
     if args.min_block is not None or args.max_block is not None:
         lo = args.min_block if args.min_block is not None else "any"
         hi = args.max_block if args.max_block is not None else "any"
-        parts.append(f"block{lo}-{hi}")
+        if lo == hi:
+            parts.append(f"lvl{lo}")
+        else:
+            parts.append(f"lvl{lo}-{hi}")
     if min_length is not None or max_length is not None:
         lo = fmt_length(min_length) if min_length is not None else "any"
         hi = fmt_length(max_length) if max_length is not None else "any"
         parts.append(f"len{lo}-{hi}")
+    if args.sort != "length":
+        parts.append(f"by-{args.sort}")
     tag = " ".join(parts) if parts else "all"
 
     output = args.output or os.path.join(
@@ -219,14 +237,8 @@ def main(argv=None):
     with open(output, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
-    total = sum(len(v) for v in by_minute.values()) + len(unknown_length)
-    buckets_str = ", ".join(
-        f"{fmt_length(b*60)}-{fmt_length((b+1)*60)}×{len(by_minute[b])}"
-        for b in sorted(by_minute)
-    )
-    print(f"{total} charts across buckets: {buckets_str}")
-    if unknown_length:
-        print(f"  + {len(unknown_length)} with unknown length")
+    total = sum(len(v) for v in by_bucket.values()) + len(unknown)
+    print(f"{total} charts in {len(by_bucket)} buckets (sort: {args.sort})")
     print(f"Wrote {len(lines)} lines to {output}")
     return 0
 

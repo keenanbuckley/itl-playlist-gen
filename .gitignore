@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.venv/
 
 # Personal data drops and generated output.
 playlists/*.txt
@@ -19,3 +20,4 @@ data/ITL2026/entrant_index.json
 
 # test sample data
 non-itl/Songs
+non-itl/song_cache.json
