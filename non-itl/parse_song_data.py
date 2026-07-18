@@ -153,7 +153,7 @@ def main(argv=None):
 
     songs = []
     errors = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=args.workers) as pool:
         futures = {
             pool.submit(process_song, pack, folder, d): (pack, folder)
             for pack, folder, d in tasks
