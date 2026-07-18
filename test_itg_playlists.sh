@@ -12,4 +12,4 @@ for sort in jumps j2j j10j avg_nps; do
     python3 non-itl/generate-itg-playlist.py --min-length 2:00 --max-length 5:00 --min-block 1 --max-block 5 --sort $sort
 done
 
-python3 non-itl/generate-itg-playlist.py --min-length 5:00 --min-block 7 --max-block 10 --sort length
+python3 non-itl/generate-itg-playlist.py --min-length 5:00 --min-block 7 --max-block 10 --sort length --output-dir "$(pwd)"

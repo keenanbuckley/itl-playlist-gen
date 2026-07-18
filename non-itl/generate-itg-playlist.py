@@ -167,7 +167,11 @@ def main(argv=None):
                              "j2j (jacks + 2*jumps, buckets of 50), "
                              "j10j (jacks + 10*jumps, buckets of 100)")
     parser.add_argument("-o", "--output",
-                        help="output playlist path (default: playlists/itg-<criteria>.txt)")
+                        help="output playlist path (overrides --output-dir and auto-naming)")
+    parser.add_argument("--output-dir",
+                        default=os.path.join(os.path.dirname(SCRIPT_DIR), "playlists"),
+                        help="directory for auto-named output files "
+                             "(default: ../playlists relative to this script)")
     args = parser.parse_args(argv)
 
     try:
@@ -230,9 +234,7 @@ def main(argv=None):
         parts.append(f"by-{args.sort}")
     tag = " ".join(parts) if parts else "all"
 
-    output = args.output or os.path.join(
-        os.path.dirname(SCRIPT_DIR), "playlists", f"itg-{tag}.txt"
-    )
+    output = args.output or os.path.join(args.output_dir, f"itg-{tag}.txt")
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
