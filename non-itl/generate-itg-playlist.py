@@ -215,6 +215,18 @@ def main(argv=None):
         for e in unknown:
             lines.append(f"{e['pack']}\\{e['song_folder']}")
 
+    # Remove adjacent duplicate song lines (headers are transparent: a song at
+    # the end of one bucket and the start of the next still collapses).
+    deduped = []
+    last_song = None
+    for line in lines:
+        if line.startswith("---"):
+            deduped.append(line)
+        elif line != last_song:
+            deduped.append(line)
+            last_song = line
+    lines = deduped
+
     # Build a human-readable criteria summary for the default filename.
     parts = []
     if args.difficulty:
