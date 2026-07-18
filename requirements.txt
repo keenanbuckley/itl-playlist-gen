@@ -1,0 +1,6 @@
+appdirs==1.4.4
+fs==2.4.16
+msdparser==2.0.0
+mutagen==1.48.1
+simfile==2.1.1
+six==1.17.0

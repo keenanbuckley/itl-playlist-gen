@@ -16,3 +16,6 @@ plots/*.png
 data/ITL2026/spice.json
 data/ITL2026/catalog.json
 data/ITL2026/entrant_index.json
+
+# test sample data
+non-itl/Songs
