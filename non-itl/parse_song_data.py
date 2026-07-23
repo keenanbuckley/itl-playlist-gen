@@ -92,8 +92,14 @@ def get_audio_length(song_dir, music_filename):
         if match:
             path = os.path.join(song_dir, match)
         else:
-            log.debug("get_audio_length: file not found: %s", path)
-            return None
+            audio_exts = {".ogg", ".mp3", ".wav", ".flac", ".opus", ".m4a"}
+            audio_files = [f for f in os.listdir(song_dir) if os.path.splitext(f)[1].lower() in audio_exts]
+            if len(audio_files) == 1:
+                path = os.path.join(song_dir, audio_files[0])
+                log.debug("get_audio_length: falling back to only audio file: %s", path)
+            else:
+                log.debug("get_audio_length: file not found: %s", path)
+                return None
     try:
         audio = mutagen.File(path)
         log.debug("get_audio_length: mutagen.File(%s) = %r (truthy=%s)", path, audio, bool(audio))
