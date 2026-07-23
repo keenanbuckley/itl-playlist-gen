@@ -29,6 +29,10 @@ except ImportError:
     sys.exit("mutagen not installed: pip install mutagen")
 
 
+import logging
+
+log = logging.getLogger(__name__)
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SONGS_DIR = os.path.join(SCRIPT_DIR, "Songs")
 DEFAULT_CACHE = os.path.join(SCRIPT_DIR, "song_cache.json")
@@ -79,23 +83,45 @@ def parse_note_counts(chart):
 
 def get_audio_length(song_dir, music_filename):
     if not music_filename:
+        log.debug("get_audio_length: no music filename for %s", song_dir)
         return None
     path = os.path.join(song_dir, music_filename)
     if not os.path.isfile(path):
-        return None
+        lower = music_filename.lower()
+        match = next((f for f in os.listdir(song_dir) if f.lower() == lower), None)
+        if match:
+            path = os.path.join(song_dir, match)
+        else:
+            log.debug("get_audio_length: file not found: %s", path)
+            return None
     try:
         audio = mutagen.File(path)
-        if audio and hasattr(audio.info, "length"):
-            return audio.info.length
-    except Exception:
-        pass
+        log.debug("get_audio_length: mutagen.File(%s) = %r (truthy=%s)", path, audio, bool(audio))
+        if audio is None:
+            log.debug("get_audio_length: mutagen returned None for %s", path)
+            return None
+        if not hasattr(audio.info, "length"):
+            log.debug("get_audio_length: audio.info has no length attr for %s", path)
+            return None
+        log.debug("get_audio_length: length=%.2f for %s", audio.info.length, path)
+        return audio.info.length
+    except Exception as e:
+        log.debug("get_audio_length: exception for %s: %s", path, e)
     return None
 
 
 def process_song(pack, song_folder, song_dir):
-    """Parse one song directory; return a metadata dict."""
-    sf, _ = simfile.opendir(song_dir, strict=False)
+    """Parse one song directory; return a metadata dict, or None if no simfile found."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    try:
+        sf, _ = simfile.opendir(song_dir, strict=False)
+    except FileNotFoundError:
+        return None
     length_s = get_audio_length(song_dir, sf.get("MUSIC", ""))
+    song_label = f"{pack}/{song_folder}"
+
+    if length_s is None:
+        log.error("%s: missing audio length", song_label)
 
     charts = []
     for chart in sf.charts:
@@ -104,6 +130,13 @@ def process_song(pack, song_folder, song_dir):
             meter = int(chart.meter)
         except (ValueError, TypeError):
             meter = None
+
+        chart_label = f"{song_label} [{chart.stepstype} {chart.difficulty}]"
+        if meter is None:
+            log.error("%s: missing meter", chart_label)
+        if not note_count:
+            log.error("%s: zero note count", chart_label)
+
         charts.append({
             "steps_type": chart.stepstype,
             "difficulty": chart.difficulty,
@@ -135,6 +168,7 @@ def main(argv=None):
     parser.add_argument("--workers", type=int, default=os.cpu_count() or 4,
                         help="parallel worker threads (default: cpu count)")
     args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     if not os.path.isdir(args.songs_dir):
         sys.exit(f"Songs directory not found: {args.songs_dir}")
@@ -161,7 +195,9 @@ def main(argv=None):
         for future in concurrent.futures.as_completed(futures):
             pack, folder = futures[future]
             try:
-                songs.append(future.result())
+                result = future.result()
+                if result is not None:
+                    songs.append(result)
             except Exception as e:
                 errors.append(f"  {pack}/{folder}: {e}")
 

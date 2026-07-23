@@ -3,7 +3,7 @@ set -euxo pipefail
 
 source .venv/bin/activate
 
-# python3 non-itl/parse_song_data.py
+python3 non-itl/parse_song_data.py
 
 for sort in jumps j2j j10j avg_nps; do
     for level in 1 2 3 4 5; do
