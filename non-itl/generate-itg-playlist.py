@@ -128,7 +128,7 @@ def load_charts(cache_path, steps_type, difficulty_filter, min_block, max_block,
 
             avg_nps = chart["notes"] / length_s if length_s else None
             min_bpm, max_bpm = chart.get("min_bpm"), chart.get("max_bpm")
-            bpm = (min_bpm + max_bpm) / 2 if min_bpm is not None and max_bpm is not None else None
+            bpm = max_bpm
 
             results.append({
                 "pack": song["pack"],
