@@ -15,6 +15,19 @@ matching charts grouped and sorted by a chosen metric.
 
     # sorted and bucketed by jack+jump density
     python generate-itg-playlist.py --difficulty Challenge --sort j2j
+
+    # sorted and bucketed by BPM
+    python generate-itg-playlist.py --sort bpm
+
+    # only songs from specific packs (repeatable and/or comma-separated)
+    python generate-itg-playlist.py --include-pack "In The Groove 3" --include-pack "Egg Carton 4"
+
+    # exclude specific packs
+    python generate-itg-playlist.py --exclude-pack "3guys1pack,5guys1pack"
+
+    # include/exclude packs listed one per line in a file (# comments and blank lines ignored)
+    python generate-itg-playlist.py --include-pack-file my-packs.txt
+    python generate-itg-playlist.py --exclude-pack-file bad-packs.txt
 """
 
 import argparse
@@ -26,10 +39,10 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CACHE = os.path.join(SCRIPT_DIR, "song_cache.json")
 
-SORT_CHOICES = ["length", "avg_nps", "block", "j2j", "jumps", "j10j"]
+SORT_CHOICES = ["length", "avg_nps", "block", "j2j", "jumps", "j10j", "bpm"]
 
 # Bucket sizes for each sort metric (except block which buckets by integer level).
-BUCKET_SIZE = {"length": 60, "avg_nps": 1, "j2j": 50, "jumps": 25, "j10j": 100}
+BUCKET_SIZE = {"length": 60, "avg_nps": 1, "j2j": 50, "jumps": 25, "j10j": 100, "bpm": 20}
 
 
 def parse_length(s):
@@ -50,8 +63,30 @@ def fmt_length(seconds):
     return f"{m}:{s:02d}"
 
 
+def parse_pack_list(values):
+    """Flatten a list of comma-separated --*-pack args into a set of lowercased names."""
+    packs = set()
+    for value in values or []:
+        for name in value.split(","):
+            name = name.strip()
+            if name:
+                packs.add(name.lower())
+    return packs
+
+
+def load_pack_file(path):
+    """Read one pack name per line from a file (blank lines and #comments ignored)."""
+    packs = set()
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                packs.add(line.lower())
+    return packs
+
+
 def load_charts(cache_path, steps_type, difficulty_filter, min_block, max_block,
-                min_length, max_length):
+                min_length, max_length, include_packs=None, exclude_packs=None):
     """Load matching (song, chart) pairs from the cache.
 
     Returns one entry per matching chart with keys:
@@ -69,7 +104,12 @@ def load_charts(cache_path, steps_type, difficulty_filter, min_block, max_block,
     results = []
     for song in cache["songs"]:
         length_s = song["length_s"]
+        pack_lower = song["pack"].lower()
 
+        if include_packs and pack_lower not in include_packs:
+            continue
+        if exclude_packs and pack_lower in exclude_packs:
+            continue
         if min_length is not None and (length_s is None or length_s < min_length):
             continue
         if max_length is not None and (length_s is None or length_s > max_length):
@@ -87,6 +127,8 @@ def load_charts(cache_path, steps_type, difficulty_filter, min_block, max_block,
                 continue
 
             avg_nps = chart["notes"] / length_s if length_s else None
+            min_bpm, max_bpm = chart.get("min_bpm"), chart.get("max_bpm")
+            bpm = (min_bpm + max_bpm) / 2 if min_bpm is not None and max_bpm is not None else None
 
             results.append({
                 "pack": song["pack"],
@@ -97,6 +139,9 @@ def load_charts(cache_path, steps_type, difficulty_filter, min_block, max_block,
                 "jumps": chart["jumps"],
                 "j2j": chart["jacks"] + 2 * chart["jumps"],
                 "j10j": chart["jacks"] + 10 * chart["jumps"],
+                "bpm": bpm,
+                "min_bpm": min_bpm,
+                "max_bpm": max_bpm,
             })
 
     return results
@@ -133,6 +178,10 @@ def bucket_label(bucket, sort_by, count):
         lo = bucket * BUCKET_SIZE["j10j"]
         hi = lo + BUCKET_SIZE["j10j"]
         return f"---j10j {lo}-{hi} ({count} charts)"
+    if sort_by == "bpm":
+        lo = bucket * BUCKET_SIZE["bpm"]
+        hi = lo + BUCKET_SIZE["bpm"]
+        return f"---{lo}-{hi} BPM ({count} charts)"
 
 
 def sort_key(entry, sort_by):
@@ -159,13 +208,24 @@ def main(argv=None):
                         help="StepMania steps type to include (default: dance-single)")
     parser.add_argument("--difficulty", metavar="DIFF",
                         help="filter to a specific difficulty column (e.g. Challenge, Hard)")
+    parser.add_argument("--include-pack", action="append", metavar="PACK",
+                        help="only include songs from this pack (repeatable, or comma-separated)")
+    parser.add_argument("--exclude-pack", action="append", metavar="PACK",
+                        help="exclude songs from this pack (repeatable, or comma-separated)")
+    parser.add_argument("--include-pack-file", metavar="FILE",
+                        help="file with one pack name per line to include "
+                             "(merged with --include-pack)")
+    parser.add_argument("--exclude-pack-file", metavar="FILE",
+                        help="file with one pack name per line to exclude "
+                             "(merged with --exclude-pack)")
     parser.add_argument("--sort", choices=SORT_CHOICES, default="length",
                         help="sort and bucket order: length (default, 1-min buckets), "
                              "avg_nps (notes/sec, 1-NPS buckets), "
                              "block (meter level), "
                              "jumps (jump count, buckets of 25), "
                              "j2j (jacks + 2*jumps, buckets of 50), "
-                             "j10j (jacks + 10*jumps, buckets of 100)")
+                             "j10j (jacks + 10*jumps, buckets of 100), "
+                             "bpm (chart tempo, buckets of 20)")
     parser.add_argument("-o", "--output",
                         help="output playlist path (overrides --output-dir and auto-naming)")
     parser.add_argument("--output-dir",
@@ -180,9 +240,17 @@ def main(argv=None):
     except ValueError as e:
         parser.error(str(e))
 
+    include_packs = parse_pack_list(args.include_pack)
+    exclude_packs = parse_pack_list(args.exclude_pack)
+    if args.include_pack_file:
+        include_packs |= load_pack_file(args.include_pack_file)
+    if args.exclude_pack_file:
+        exclude_packs |= load_pack_file(args.exclude_pack_file)
+
     results = load_charts(
         args.cache, args.steps_type, args.difficulty,
         args.min_block, args.max_block, min_length, max_length,
+        include_packs, exclude_packs,
     )
 
     if not results:
@@ -242,11 +310,15 @@ def main(argv=None):
         lo = fmt_length(min_length) if min_length is not None else "any"
         hi = fmt_length(max_length) if max_length is not None else "any"
         parts.append(f"len{lo}-{hi}")
+    if include_packs:
+        parts.append(f"{len(include_packs)}pack" if len(include_packs) != 1 else next(iter(include_packs)))
+    if exclude_packs:
+        parts.append(f"no-{len(exclude_packs)}pack")
     if args.sort != "length":
         parts.append(f"by-{args.sort}")
     tag = " ".join(parts) if parts else "all"
 
-    output = args.output or os.path.join(args.output_dir, f"itg-{tag}.txt")
+    output = args.output or os.path.join(args.output_dir, f"{tag}.txt")
     os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
     with open(output, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

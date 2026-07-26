@@ -20,6 +20,7 @@ try:
     import simfile
     from simfile.notes import NoteData, NoteType as SNoteType
     from simfile.timing import Beat
+    from simfile.timing.displaybpm import displaybpm
 except ImportError:
     sys.exit("simfile not installed: pip install simfile")
 
@@ -143,6 +144,13 @@ def process_song(pack, song_folder, song_dir):
         if not note_count:
             log.error("%s: zero note count", chart_label)
 
+        try:
+            bpm = displaybpm(sf, chart, ignore_specified=True)
+            min_bpm, max_bpm = float(bpm.min), float(bpm.max)
+        except Exception as e:
+            log.error("%s: missing/invalid BPM: %s", chart_label, e)
+            min_bpm = max_bpm = None
+
         charts.append({
             "steps_type": chart.stepstype,
             "difficulty": chart.difficulty,
@@ -150,6 +158,8 @@ def process_song(pack, song_folder, song_dir):
             "notes": note_count,
             "jumps": jump_count,
             "jacks": jack_count,
+            "min_bpm": min_bpm,
+            "max_bpm": max_bpm,
         })
 
     return {

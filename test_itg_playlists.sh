@@ -3,6 +3,8 @@ set -euxo pipefail
 
 source .venv/bin/activate
 
+mkdir -p playlists
+
 python3 non-itl/parse_song_data.py
 
 for sort in jumps j2j j10j avg_nps; do
@@ -12,4 +14,7 @@ for sort in jumps j2j j10j avg_nps; do
     python3 non-itl/generate-itg-playlist.py --min-length 2:00 --max-length 5:00 --min-block 1 --max-block 5 --sort $sort
 done
 
-python3 non-itl/generate-itg-playlist.py --min-length 5:00 --min-block 7 --max-block 10 --sort length --output-dir "$(pwd)"
+python3 non-itl/generate-itg-playlist.py --min-length 5:00 --min-block 7 --max-block 10 --sort length --output-dir "$(pwd)/playlists"
+
+python3 non-itl/generate-itg-playlist.py --min-length 3:00 --min-block 7 --max-block 10 --sort bpm --exclude-pack 'Egg Carton 4'
+
